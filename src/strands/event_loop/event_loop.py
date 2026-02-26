@@ -7,6 +7,8 @@ The event loop allows agents to:
 3. Handle errors and recovery strategies
 4. Manage recursive execution cycles
 """
+# Modified by Linyi in 2026.
+# Licensed under the Apache License, Version 2.0.
 
 import logging
 import uuid
