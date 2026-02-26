@@ -785,7 +785,7 @@ async def test_request_state_initialization(alist):
 
 @pytest.mark.asyncio
 async def test_prepare_next_cycle_in_tool_execution(agent, model, tool_stream, agenerator, alist):
-    """Test that cycle ID and metrics are properly updated during tool execution."""
+    """Test that parent cycle ID is set during tool execution for cycle tracking."""
     model.stream.side_effect = [
         agenerator(tool_stream),
         agenerator(
@@ -795,36 +795,18 @@ async def test_prepare_next_cycle_in_tool_execution(agent, model, tool_stream, a
         ),
     ]
 
-    # Create a mock for recurse_event_loop to capture the invocation_state passed to it
-    with unittest.mock.patch.object(strands.event_loop.event_loop, "recurse_event_loop") as mock_recurse:
-        # Set up mock to return a valid response
-        mock_recurse.return_value = agenerator(
-            [
-                (
-                    "end_turn",
-                    {"role": "assistant", "content": [{"text": "test text"}]},
-                    strands.telemetry.metrics.EventLoopMetrics(),
-                    {},
-                ),
-            ]
-        )
+    invocation_state = {}
+    stream = strands.event_loop.event_loop.event_loop_cycle(
+        agent=agent,
+        invocation_state=invocation_state,
+    )
+    await alist(stream)
 
-        # Call event_loop_cycle which should execute a tool and then call recurse_event_loop
-        stream = strands.event_loop.event_loop.event_loop_cycle(
-            agent=agent,
-            invocation_state={},
-        )
-        await alist(stream)
+    # Verify model was called twice (tool_use turn + end_turn)
+    assert model.stream.call_count == 2
 
-        assert mock_recurse.called
-
-        # Verify required properties are present
-        recursive_args = mock_recurse.call_args[1]
-        assert "event_loop_parent_cycle_id" in recursive_args["invocation_state"]
-        assert (
-            recursive_args["invocation_state"]["event_loop_parent_cycle_id"]
-            == recursive_args["invocation_state"]["event_loop_cycle_id"]
-        )
+    # Verify parent cycle ID tracking was set during tool execution
+    assert "event_loop_parent_cycle_id" in invocation_state
 
 
 @pytest.mark.asyncio

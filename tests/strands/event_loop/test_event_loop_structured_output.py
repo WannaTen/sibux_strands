@@ -1,11 +1,11 @@
 """Tests for structured output integration in the event loop."""
 
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from pydantic import BaseModel
 
-from strands.event_loop.event_loop import event_loop_cycle, recurse_event_loop
+from strands.event_loop.event_loop import event_loop_cycle
 from strands.telemetry.metrics import EventLoopMetrics
 from strands.tools.registry import ToolRegistry
 from strands.tools.structured_output._structured_output_context import (
@@ -124,7 +124,10 @@ async def test_event_loop_forces_structured_output_on_end_turn(
     mock_agent, structured_output_context, agenerator, alist
 ):
     """Test that event loop forces structured output tool when model returns end_turn."""
+    test_result = UserModel(name="John", age=30, email="john@example.com")
+
     # First call returns end_turn without using structured output tool
+    # Second call (forced) uses the structured output tool
     mock_agent.model.stream.side_effect = [
         agenerator(
             [
@@ -133,7 +136,6 @@ async def test_event_loop_forces_structured_output_on_end_turn(
                 {"messageStop": {"stopReason": "end_turn"}},
             ]
         ),
-        # Second call (forced) uses the structured output tool
         agenerator(
             [
                 {
@@ -157,49 +159,26 @@ async def test_event_loop_forces_structured_output_on_end_turn(
         ),
     ]
 
-    # Mock tool executor to handle the structured output tool
-    mock_agent.tool_executor._execute = Mock(
-        return_value=agenerator(
-            [
-                # Tool execution events would go here
-            ]
-        )
+    # Mock tool executor and extract_result for second iteration
+    mock_agent.tool_executor._execute = Mock(return_value=agenerator([]))
+    structured_output_context.extract_result = Mock(return_value=test_result)
+
+    stream = event_loop_cycle(
+        agent=mock_agent,
+        invocation_state={},
+        structured_output_context=structured_output_context,
     )
+    await alist(stream)
 
-    # Mock recurse_event_loop to return final result
-    with patch("strands.event_loop.event_loop.recurse_event_loop") as mock_recurse:
-        # Create a mock EventLoopStopEvent with the expected structure
-        mock_stop_event = Mock()
-        mock_stop_event.stop = (
-            "end_turn",
-            {"role": "assistant", "content": [{"text": "Done"}]},
-            mock_agent.event_loop_metrics,
-            {},
-            None,
-            UserModel(name="John", age=30, email="john@example.com"),
-        )
-        mock_stop_event.__getitem__ = lambda self, key: {"stop": self.stop}[key]
+    # Should have appended a message to force structured output
+    mock_agent._append_messages.assert_called_once()
+    args = mock_agent._append_messages.call_args[0][0]
+    assert args["role"] == "user"
+    # Should use the default prompt
+    assert args["content"][0]["text"] == DEFAULT_STRUCTURED_OUTPUT_PROMPT
 
-        mock_recurse.return_value = agenerator([mock_stop_event])
-
-        stream = event_loop_cycle(
-            agent=mock_agent,
-            invocation_state={},
-            structured_output_context=structured_output_context,
-        )
-        await alist(stream)
-
-        # Should have appended a message to force structured output
-        mock_agent._append_messages.assert_called_once()
-        args = mock_agent._append_messages.call_args[0][0]
-        assert args["role"] == "user"
-        # Should use the default prompt
-        assert args["content"][0]["text"] == DEFAULT_STRUCTURED_OUTPUT_PROMPT
-
-        # Should have called recurse_event_loop with the context
-        mock_recurse.assert_called_once()
-        call_kwargs = mock_recurse.call_args[1]
-        assert call_kwargs["structured_output_context"] == structured_output_context
+    # Model should have been called twice (end_turn then forced tool_use)
+    assert mock_agent.model.stream.call_count == 2
 
 
 @pytest.mark.asyncio
@@ -210,8 +189,9 @@ async def test_event_loop_forces_structured_output_with_custom_prompt(mock_agent
         structured_output_model=UserModel,
         structured_output_prompt=custom_prompt,
     )
+    test_result = UserModel(name="John", age=30, email="john@example.com")
 
-    # First call returns end_turn without using structured output tool
+    # First call returns end_turn, second call uses the structured output tool
     mock_agent.model.stream.side_effect = [
         agenerator(
             [
@@ -220,35 +200,45 @@ async def test_event_loop_forces_structured_output_with_custom_prompt(mock_agent
                 {"messageStop": {"stopReason": "end_turn"}},
             ]
         ),
+        agenerator(
+            [
+                {
+                    "contentBlockStart": {
+                        "start": {
+                            "toolUse": {
+                                "toolUseId": "t1",
+                                "name": "UserModel",
+                            }
+                        }
+                    }
+                },
+                {
+                    "contentBlockDelta": {
+                        "delta": {"toolUse": {"input": '{"name": "John", "age": 30, "email": "john@example.com"}'}}
+                    }
+                },
+                {"contentBlockStop": {}},
+                {"messageStop": {"stopReason": "tool_use"}},
+            ]
+        ),
     ]
 
-    # Mock recurse_event_loop to return final result
-    with patch("strands.event_loop.event_loop.recurse_event_loop") as mock_recurse:
-        mock_stop_event = Mock()
-        mock_stop_event.stop = (
-            "end_turn",
-            {"role": "assistant", "content": [{"text": "Done"}]},
-            mock_agent.event_loop_metrics,
-            {},
-            None,
-            UserModel(name="John", age=30, email="john@example.com"),
-        )
-        mock_stop_event.__getitem__ = lambda self, key: {"stop": self.stop}[key]
+    # Mock tool executor and extract_result for second iteration
+    mock_agent.tool_executor._execute = Mock(return_value=agenerator([]))
+    structured_output_context.extract_result = Mock(return_value=test_result)
 
-        mock_recurse.return_value = agenerator([mock_stop_event])
+    stream = event_loop_cycle(
+        agent=mock_agent,
+        invocation_state={},
+        structured_output_context=structured_output_context,
+    )
+    await alist(stream)
 
-        stream = event_loop_cycle(
-            agent=mock_agent,
-            invocation_state={},
-            structured_output_context=structured_output_context,
-        )
-        await alist(stream)
-
-        # Should have appended a message with the custom prompt
-        mock_agent._append_messages.assert_called_once()
-        args = mock_agent._append_messages.call_args[0][0]
-        assert args["role"] == "user"
-        assert args["content"][0]["text"] == custom_prompt
+    # Should have appended a message with the custom prompt
+    mock_agent._append_messages.assert_called_once()
+    args = mock_agent._append_messages.call_args[0][0]
+    assert args["role"] == "user"
+    assert args["content"][0]["text"] == custom_prompt
 
 
 @pytest.mark.asyncio
@@ -388,54 +378,6 @@ async def test_structured_output_forced_mode(mock_agent, agenerator, alist):
     assert isinstance(tool_specs, list), f"Expected tool_specs to be a list, got {type(tool_specs)}"
     assert len(tool_specs) == 1
     assert tool_specs[0]["name"] == "ProductModel"
-
-
-@pytest.mark.asyncio
-async def test_recurse_event_loop_with_structured_output(mock_agent, structured_output_context, agenerator, alist):
-    """Test recurse_event_loop preserves structured output context."""
-    invocation_state = {
-        "event_loop_cycle_trace": Mock(),
-        "request_state": {},
-    }
-
-    # Mock event_loop_cycle to verify it receives the context
-    with patch("strands.event_loop.event_loop.event_loop_cycle") as mock_cycle:
-        # Create a mock EventLoopStopEvent with the expected structure
-        mock_stop_event = Mock(spec=EventLoopStopEvent)
-        mock_stop_event.stop = (
-            "end_turn",
-            {"role": "assistant", "content": [{"text": "Done"}]},
-            mock_agent.event_loop_metrics,
-            {},
-            None,
-            UserModel(name="Test", age=20, email="test@example.com"),
-        )
-        mock_stop_event.__getitem__ = lambda self, key: {"stop": self.stop}[key]
-
-        mock_cycle.return_value = agenerator([mock_stop_event])
-
-        stream = recurse_event_loop(
-            agent=mock_agent,
-            invocation_state=invocation_state,
-            structured_output_context=structured_output_context,
-        )
-        events = await alist(stream)
-
-        # Verify event_loop_cycle was called with the context
-        mock_cycle.assert_called_once()
-        call_kwargs = mock_cycle.call_args[1]
-        assert call_kwargs["structured_output_context"] == structured_output_context
-
-        # Verify the result includes structured output
-        stop_events = [
-            e for e in events if isinstance(e, EventLoopStopEvent) or (hasattr(e, "stop") and hasattr(e, "__getitem__"))
-        ]
-        assert len(stop_events) == 1
-        stop_event = stop_events[0]
-        if hasattr(stop_event, "__getitem__"):
-            assert stop_event["stop"][5].name == "Test"
-        else:
-            assert stop_event.stop[5].name == "Test"
 
 
 @pytest.mark.asyncio

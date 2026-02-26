@@ -80,21 +80,13 @@ async def event_loop_cycle(
     invocation_state: dict[str, Any],
     structured_output_context: StructuredOutputContext | None = None,
 ) -> AsyncGenerator[TypedEvent, None]:
-    """Execute a single cycle of the event loop.
+    """Execute the event loop as a while-loop over conversation turns.
 
-    This core function processes a single conversation turn, handling model inference, tool execution, and error
-    recovery. It manages the entire lifecycle of a conversation turn, including:
-
-    1. Initializing cycle state and metrics
-    2. Checking execution limits
-    3. Processing messages with the model
-    4. Handling tool execution requests
-    5. Managing recursive calls for multi-turn tool interactions
-    6. Collecting and reporting metrics
-    7. Error handling and recovery
+    Each iteration handles one model call and optional tool execution. The loop continues
+    until the model stops for a non-tool reason (e.g., end_turn) or a stop condition is met.
 
     Args:
-        agent: The agent for which the cycle is being executed.
+        agent: The agent for which the loop is being executed.
         invocation_state: Additional arguments including:
 
             - request_state: State maintained across cycles
@@ -103,12 +95,7 @@ async def event_loop_cycle(
         structured_output_context: Optional context for structured output management.
 
     Yields:
-        Model and tool stream events. The last event is a tuple containing:
-
-            - StopReason: Reason the model stopped generating (e.g., "tool_use")
-            - Message: The generated message from the model
-            - EventLoopMetrics: Updated metrics for the event loop
-            - Any: Updated request state
+        Model and tool stream events. The last event is an EventLoopStopEvent.
 
     Raises:
         EventLoopException: If an error occurs during execution
@@ -116,160 +103,114 @@ async def event_loop_cycle(
     """
     structured_output_context = structured_output_context or StructuredOutputContext()
 
-    # Initialize cycle state
-    invocation_state["event_loop_cycle_id"] = uuid.uuid4()
-
-    # Initialize state and get cycle trace
     if "request_state" not in invocation_state:
         invocation_state["request_state"] = {}
-    attributes = {"event_loop_cycle_id": str(invocation_state.get("event_loop_cycle_id"))}
-    cycle_start_time, cycle_trace = agent.event_loop_metrics.start_cycle(attributes=attributes)
-    invocation_state["event_loop_cycle_trace"] = cycle_trace
 
-    yield StartEvent()
-    yield StartEventLoopEvent()
+    while True:
+        # Initialize cycle state
+        invocation_state["event_loop_cycle_id"] = uuid.uuid4()
+        attributes = {"event_loop_cycle_id": str(invocation_state.get("event_loop_cycle_id"))}
+        cycle_start_time, cycle_trace = agent.event_loop_metrics.start_cycle(attributes=attributes)
+        invocation_state["event_loop_cycle_trace"] = cycle_trace
 
-    # Create tracer span for this event loop cycle
-    tracer = get_tracer()
-    cycle_span = tracer.start_event_loop_cycle_span(
-        invocation_state=invocation_state,
-        messages=agent.messages,
-        parent_span=agent.trace_span,
-        custom_trace_attributes=agent.trace_attributes,
-    )
-    invocation_state["event_loop_cycle_span"] = cycle_span
+        yield StartEvent()
+        yield StartEventLoopEvent()
 
-    with trace_api.use_span(cycle_span, end_on_exit=True):
-        # Skipping model invocation if in interrupt state as interrupts are currently only supported for tool calls.
-        if agent._interrupt_state.activated:
-            stop_reason: StopReason = "tool_use"
-            message = agent._interrupt_state.context["tool_use_message"]
-        # Skip model invocation if the latest message contains ToolUse
-        elif _has_tool_use_in_latest_message(agent.messages):
-            stop_reason = "tool_use"
-            message = agent.messages[-1]
-        else:
-            model_events = _handle_model_execution(
-                agent, cycle_span, cycle_trace, invocation_state, tracer, structured_output_context
-            )
-            async for model_event in model_events:
-                if not isinstance(model_event, ModelStopReason):
-                    yield model_event
+        # Create tracer span for this event loop cycle
+        tracer = get_tracer()
+        cycle_span = tracer.start_event_loop_cycle_span(
+            invocation_state=invocation_state,
+            messages=agent.messages,
+            parent_span=agent.trace_span,
+            custom_trace_attributes=agent.trace_attributes,
+        )
+        invocation_state["event_loop_cycle_span"] = cycle_span
 
-            stop_reason, message, *_ = model_event["stop"]
-            yield ModelMessageEvent(message=message)
+        with trace_api.use_span(cycle_span, end_on_exit=True):
+            # Skipping model invocation if in interrupt state
+            if agent._interrupt_state.activated:
+                stop_reason: StopReason = "tool_use"
+                message = agent._interrupt_state.context["tool_use_message"]
+            # Skip model invocation if the latest message contains ToolUse
+            elif _has_tool_use_in_latest_message(agent.messages):
+                stop_reason = "tool_use"
+                message = agent.messages[-1]
+            else:
+                model_events = _handle_model_execution(
+                    agent, cycle_span, cycle_trace, invocation_state, tracer, structured_output_context
+                )
+                async for model_event in model_events:
+                    if not isinstance(model_event, ModelStopReason):
+                        yield model_event
 
-        try:
-            if stop_reason == "max_tokens":
-                """
-                Handle max_tokens limit reached by the model.
+                stop_reason, message, *_ = model_event["stop"]
+                yield ModelMessageEvent(message=message)
 
-                When the model reaches its maximum token limit, this represents a potentially unrecoverable
-                state where the model's response was truncated. By default, Strands fails hard with an
-                MaxTokensReachedException to maintain consistency with other failure types.
-                """
-                raise MaxTokensReachedException(
-                    message=(
-                        "Agent has reached an unrecoverable state due to max_tokens limit. "
-                        "For more information see: "
-                        "https://strandsagents.com/latest/user-guide/concepts/agents/agent-loop/#maxtokensreachedexception"
+            try:
+                if stop_reason == "max_tokens":
+                    raise MaxTokensReachedException(
+                        message=(
+                            "Agent has reached an unrecoverable state due to max_tokens limit. "
+                            "For more information see: "
+                            "https://strandsagents.com/latest/user-guide/concepts/agents/agent-loop/"
+                            "#maxtokensreachedexception"
+                        )
                     )
+
+                if stop_reason == "tool_use":
+                    should_stop = False
+                    tool_events = _handle_tool_execution(
+                        stop_reason,
+                        message,
+                        agent=agent,
+                        cycle_trace=cycle_trace,
+                        cycle_span=cycle_span,
+                        cycle_start_time=cycle_start_time,
+                        invocation_state=invocation_state,
+                        tracer=tracer,
+                        structured_output_context=structured_output_context,
+                    )
+                    async for tool_event in tool_events:
+                        yield tool_event
+                        if isinstance(tool_event, EventLoopStopEvent):
+                            should_stop = True
+
+                    if should_stop:
+                        return
+
+                    # Continue to next turn
+                    continue
+
+                # End the cycle for non-tool_use stops
+                agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace, attributes)
+                tracer.end_event_loop_cycle_span(cycle_span, message)
+
+            except EventLoopException:
+                raise
+            except (ContextWindowOverflowException, MaxTokensReachedException) as e:
+                raise e
+            except Exception as e:
+                yield ForceStopEvent(reason=e)
+                logger.exception("cycle failed")
+                raise EventLoopException(e, invocation_state["request_state"]) from e
+
+            # Force structured output tool call if LLM didn't use it automatically
+            if structured_output_context.is_enabled and stop_reason == "end_turn":
+                if structured_output_context.force_attempted:
+                    raise StructuredOutputException(
+                        "The model failed to invoke the structured output tool even after it was forced."
+                    )
+                structured_output_context.set_forced_mode()
+                logger.debug("Forcing structured output tool")
+                await agent._append_messages(
+                    {"role": "user", "content": [{"text": structured_output_context.structured_output_prompt}]}
                 )
+                continue
 
-            if stop_reason == "tool_use":
-                # Handle tool execution
-                tool_events = _handle_tool_execution(
-                    stop_reason,
-                    message,
-                    agent=agent,
-                    cycle_trace=cycle_trace,
-                    cycle_span=cycle_span,
-                    cycle_start_time=cycle_start_time,
-                    invocation_state=invocation_state,
-                    tracer=tracer,
-                    structured_output_context=structured_output_context,
-                )
-                async for tool_event in tool_events:
-                    yield tool_event
-
-                return
-
-            # End the cycle and return results
-            agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace, attributes)
-            # Set attributes before span auto-closes
-            tracer.end_event_loop_cycle_span(cycle_span, message)
-        except EventLoopException:
-            # Don't yield or log the exception - we already did it when we
-            # raised the exception and we don't need that duplication.
-            raise
-        except (ContextWindowOverflowException, MaxTokensReachedException) as e:
-            # Special cased exceptions which we want to bubble up rather than get wrapped in an EventLoopException
-            raise e
-        except Exception as e:
-            # Handle any other exceptions
-            yield ForceStopEvent(reason=e)
-            logger.exception("cycle failed")
-            raise EventLoopException(e, invocation_state["request_state"]) from e
-
-        # Force structured output tool call if LLM didn't use it automatically
-        if structured_output_context.is_enabled and stop_reason == "end_turn":
-            if structured_output_context.force_attempted:
-                raise StructuredOutputException(
-                    "The model failed to invoke the structured output tool even after it was forced."
-                )
-            structured_output_context.set_forced_mode()
-            logger.debug("Forcing structured output tool")
-            await agent._append_messages(
-                {"role": "user", "content": [{"text": structured_output_context.structured_output_prompt}]}
+            yield EventLoopStopEvent(
+                stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"]
             )
-
-            events = recurse_event_loop(
-                agent=agent, invocation_state=invocation_state, structured_output_context=structured_output_context
-            )
-            async for typed_event in events:
-                yield typed_event
             return
-
-        yield EventLoopStopEvent(stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"])
-
-
-async def recurse_event_loop(
-    agent: "Agent",
-    invocation_state: dict[str, Any],
-    structured_output_context: StructuredOutputContext | None = None,
-) -> AsyncGenerator[TypedEvent, None]:
-    """Make a recursive call to event_loop_cycle with the current state.
-
-    This function is used when the event loop needs to continue processing after tool execution.
-
-    Args:
-        agent: Agent for which the recursive call is being made.
-        invocation_state: Arguments to pass through event_loop_cycle
-        structured_output_context: Optional context for structured output management.
-
-    Yields:
-        Results from event_loop_cycle where the last result contains:
-
-            - StopReason: Reason the model stopped generating
-            - Message: The generated message from the model
-            - EventLoopMetrics: Updated metrics for the event loop
-            - Any: Updated request state
-    """
-    cycle_trace = invocation_state["event_loop_cycle_trace"]
-
-    # Recursive call trace
-    recursive_trace = Trace("Recursive call", parent_id=cycle_trace.id)
-    cycle_trace.add_child(recursive_trace)
-
-    yield StartEvent()
-
-    events = event_loop_cycle(
-        agent=agent, invocation_state=invocation_state, structured_output_context=structured_output_context
-    )
-    async for event in events:
-        yield event
-
-    recursive_trace.end()
 
 
 async def _handle_model_execution(
@@ -429,26 +370,21 @@ async def _handle_tool_execution(
     tracer: Tracer,
     structured_output_context: StructuredOutputContext,
 ) -> AsyncGenerator[TypedEvent, None]:
-    """Handles the execution of tools requested by the model during an event loop cycle.
+    """Handle the execution of tools requested by the model during an event loop cycle.
 
     Args:
         stop_reason: The reason the model stopped generating.
         message: The message from the model that may contain tool use requests.
         agent: Agent for which tools are being executed.
         cycle_trace: Trace object for the current event loop cycle.
-        cycle_span: Span object for tracing the cycle (type may vary).
+        cycle_span: Span object for tracing the cycle.
         cycle_start_time: Start time of the current cycle.
         invocation_state: Additional keyword arguments, including request state.
         tracer: Tracer instance for span management.
-        structured_output_context: Optional context for structured output management.
+        structured_output_context: Context for structured output management.
 
     Yields:
-        Tool stream events along with events yielded from a recursive call to the event loop. The last event is a tuple
-        containing:
-            - The stop reason,
-            - The updated message,
-            - The updated event loop metrics,
-            - The updated request state.
+        Tool stream events. If the loop should stop, the last event is an EventLoopStopEvent.
     """
     tool_uses: list[ToolUse] = []
     tool_results: list[ToolResult] = []
@@ -459,19 +395,16 @@ async def _handle_tool_execution(
 
     if agent._interrupt_state.activated:
         tool_results.extend(agent._interrupt_state.context["tool_results"])
-
-        # Filter to only the interrupted tools when resuming from interrupt (tool uses without results)
         tool_use_ids = {tool_result["toolUseId"] for tool_result in tool_results}
         tool_uses = [tool_use for tool_use in tool_uses if tool_use["toolUseId"] not in tool_use_ids]
 
-    interrupts = []
+    interrupts: list[Any] = []
     tool_events = agent.tool_executor._execute(
         agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context
     )
     async for tool_event in tool_events:
         if isinstance(tool_event, ToolInterruptEvent):
             interrupts.extend(tool_event["tool_interrupt_event"]["interrupts"])
-
         yield tool_event
 
     structured_output_result = None
@@ -483,7 +416,6 @@ async def _handle_tool_execution(
     invocation_state["event_loop_parent_cycle_id"] = invocation_state["event_loop_cycle_id"]
 
     if interrupts:
-        # Session state stored on AfterInvocationEvent.
         agent._interrupt_state.context = {"tool_use_message": message, "tool_results": tool_results}
         agent._interrupt_state.activate()
 
@@ -496,10 +428,8 @@ async def _handle_tool_execution(
             interrupts,
             structured_output=structured_output_result,
         )
-        # Set attributes before span auto-closes (span is managed by use_span in event_loop_cycle)
         if cycle_span:
             tracer.end_event_loop_cycle_span(span=cycle_span, message=message)
-
         return
 
     agent._interrupt_state.deactivate()
@@ -514,7 +444,6 @@ async def _handle_tool_execution(
 
     yield ToolResultMessageEvent(message=tool_result_message)
 
-    # Set attributes before span auto-closes (span is managed by use_span in event_loop_cycle)
     if cycle_span:
         tracer.end_event_loop_cycle_span(span=cycle_span, message=message, tool_result_message=tool_result_message)
 
@@ -527,10 +456,6 @@ async def _handle_tool_execution(
             invocation_state["request_state"],
             structured_output=structured_output_result,
         )
-        return
 
-    events = recurse_event_loop(
-        agent=agent, invocation_state=invocation_state, structured_output_context=structured_output_context
-    )
-    async for event in events:
-        yield event
+
+
