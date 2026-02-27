@@ -3,7 +3,6 @@ import pytest
 from strands.hooks import BeforeToolCallEvent
 from strands.interrupt import Interrupt
 from strands.tools.executors import ConcurrentToolExecutor
-from strands.tools.structured_output._structured_output_context import StructuredOutputContext
 from strands.types._events import ToolInterruptEvent, ToolResultEvent
 
 
@@ -12,21 +11,16 @@ def executor():
     return ConcurrentToolExecutor()
 
 
-@pytest.fixture
-def structured_output_context():
-    return StructuredOutputContext(structured_output_model=None)
-
-
 @pytest.mark.asyncio
 async def test_concurrent_executor_execute(
-    executor, agent, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context, alist
+    executor, agent, tool_results, cycle_trace, cycle_span, invocation_state, alist
 ):
     tool_uses = [
         {"name": "weather_tool", "toolUseId": "1", "input": {}},
         {"name": "temperature_tool", "toolUseId": "2", "input": {}},
     ]
     stream = executor._execute(
-        agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context
+        agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state
     )
 
     tru_events = sorted(await alist(stream), key=lambda event: event.tool_use_id)
@@ -43,7 +37,7 @@ async def test_concurrent_executor_execute(
 
 @pytest.mark.asyncio
 async def test_concurrent_executor_interrupt(
-    executor, agent, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context, alist
+    executor, agent, tool_results, cycle_trace, cycle_span, invocation_state, alist
 ):
     interrupt = Interrupt(
         id="v1:before_tool_call:test_tool_id_1:78714d6c-613c-5cf4-bf25-7037569941f9",
@@ -63,7 +57,7 @@ async def test_concurrent_executor_interrupt(
     ]
 
     stream = executor._execute(
-        agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context
+        agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state
     )
 
     tru_events = sorted(await alist(stream), key=lambda event: event.tool_use_id)

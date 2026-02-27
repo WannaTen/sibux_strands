@@ -4,7 +4,6 @@ from unittest.mock import MagicMock
 import pytest
 
 import strands
-from strands.experimental.hooks.events import BidiAfterToolCallEvent
 from strands.hooks import AfterToolCallEvent, BeforeToolCallEvent
 from strands.interrupt import Interrupt
 from strands.telemetry.metrics import Trace
@@ -737,7 +736,7 @@ async def test_executor_stream_retry_false(executor, agent, tool_results, invoca
 
 @pytest.mark.asyncio
 async def test_executor_stream_bidi_event_no_retry_attribute(executor, agent, tool_results, invocation_state, alist):
-    """Test that BidiAfterToolCallEvent (which lacks retry attribute) doesn't cause retry.
+    """Test that an after-tool-call event lacking a retry attribute doesn't cause retry.
 
     This tests the getattr(after_event, "retry", False) fallback for events without retry.
     """
@@ -757,24 +756,19 @@ async def test_executor_stream_bidi_event_no_retry_attribute(executor, agent, to
         "content": [{"text": "attempt_1"}],
     }
 
-    # Create a BidiAfterToolCallEvent (which has no retry attribute)
-    bidi_event = BidiAfterToolCallEvent(
-        agent=agent,
-        selected_tool=counting_tool,
-        tool_use=tool_use,
-        invocation_state=invocation_state,
-        result=result,
-    )
+    # Create a MagicMock event that has no retry attribute
+    no_retry_event = MagicMock()
+    del no_retry_event.retry
 
-    # Patch _invoke_after_tool_call_hook to return BidiAfterToolCallEvent
+    # Patch _invoke_after_tool_call_hook to return the event without retry attr
     async def mock_after_hook(*args, **kwargs):
-        return bidi_event, []
+        return no_retry_event, []
 
     with unittest.mock.patch.object(ToolExecutor, "_invoke_after_tool_call_hook", mock_after_hook):
         stream = executor._stream(agent, tool_use, tool_results, invocation_state)
         tru_events = await alist(stream)
 
-    # Tool should be called once - no retry since BidiAfterToolCallEvent has no retry attr
+    # Tool should be called once - no retry since event has no retry attr
     assert call_count["count"] == 1
 
     # Result should be returned
