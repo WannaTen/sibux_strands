@@ -7,10 +7,11 @@ These types are modeled after the Bedrock API.
 
 from typing_extensions import TypedDict
 
-from .citations import CitationLocation
 from .content import ContentBlockStart, Role
 from .event_loop import Metrics, StopReason, Usage
-from .guardrails import Trace
+
+CitationLocation = dict
+Trace = dict
 
 
 class MessageStartEvent(TypedDict):

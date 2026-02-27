@@ -14,20 +14,18 @@ from typing import TYPE_CHECKING, Any
 
 from .._async import run_async
 from ..tools.executors._executor import ToolExecutor
-from ..types._events import ToolInterruptEvent
 from ..types.content import ContentBlock, Message
 from ..types.exceptions import ConcurrencyException
 from ..types.tools import ToolResult, ToolUse
 
 if TYPE_CHECKING:
     from ..agent import Agent
-    from ..experimental.bidi.agent import BidiAgent
 
 
 class _ToolCaller:
     """Call tool as a function."""
 
-    def __init__(self, agent: "Agent | BidiAgent") -> None:
+    def __init__(self, agent: "Agent") -> None:
         """Initialize instance.
 
         Args:
@@ -72,9 +70,6 @@ class _ToolCaller:
             Raises:
                 AttributeError: If the tool doesn't exist.
             """
-            if self._agent._interrupt_state.activated:
-                raise RuntimeError("cannot directly call tool during interrupt")
-
             if record_direct_tool_call is not None:
                 should_record_direct_tool_call = record_direct_tool_call
             else:
@@ -110,9 +105,7 @@ class _ToolCaller:
 
                 async def acall() -> ToolResult:
                     async for event in ToolExecutor._stream(self._agent, tool_use, tool_results, invocation_state):
-                        if isinstance(event, ToolInterruptEvent):
-                            self._agent._interrupt_state.deactivate()
-                            raise RuntimeError("cannot raise interrupt in direct tool call")
+                        pass
 
                     tool_result = tool_results[0]
 

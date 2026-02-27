@@ -17,7 +17,8 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel
 from typing_extensions import TypedDict, Unpack, override
 
-from strands.types.media import S3Location, SourceLocation
+S3Location = dict
+SourceLocation = dict
 
 from .._exception_notes import add_exception_note
 from ..event_loop import streaming

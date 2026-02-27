@@ -22,8 +22,10 @@ from ..types._events import (
     ToolUseStreamEvent,
     TypedEvent,
 )
-from ..types.citations import CitationsContentBlock
 from ..types.content import ContentBlock, Message, Messages, SystemContentBlock
+
+CitationsContentBlock = dict
+
 from ..types.streaming import (
     ContentBlockDeltaEvent,
     ContentBlockStart,

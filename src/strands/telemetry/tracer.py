@@ -17,7 +17,6 @@ from opentelemetry.trace import Span, StatusCode
 
 from ..agent.agent_result import AgentResult
 from ..types.content import ContentBlock, Message, Messages
-from ..types.interrupt import InterruptResponseContent
 from ..types.multiagent import MultiAgentInput
 from ..types.streaming import Metrics, StopReason, Usage
 from ..types.tools import ToolResult, ToolUse
@@ -827,7 +826,7 @@ class Tracer:
                 )
 
     def _map_content_blocks_to_otel_parts(
-        self, content_blocks: list[ContentBlock] | list[InterruptResponseContent]
+        self, content_blocks: list[ContentBlock]
     ) -> list[dict[str, Any]]:
         """Map content blocks to OpenTelemetry parts format."""
         parts: list[dict[str, Any]] = []

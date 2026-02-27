@@ -7,9 +7,8 @@ from enum import Enum
 from typing import TypeAlias
 
 from .content import ContentBlock, Messages
-from .interrupt import InterruptResponseContent
 
-AgentInput: TypeAlias = str | list[ContentBlock] | list[InterruptResponseContent] | Messages | None
+AgentInput: TypeAlias = str | list[ContentBlock] | Messages | None
 
 
 class ConcurrentInvocationMode(str, Enum):

@@ -16,7 +16,6 @@ from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping
 from typing import (
     TYPE_CHECKING,
     Any,
-    TypeVar,
     Union,
     cast,
 )
@@ -46,16 +45,13 @@ from ..hooks.registry import TEvent
 from ..interrupt import _InterruptState
 from ..models.bedrock import BedrockModel
 from ..models.model import Model
-from ..plugins import Plugin
-from ..plugins.registry import _PluginRegistry
 from ..session.session_manager import SessionManager
 from ..telemetry.metrics import EventLoopMetrics
-from ..telemetry.tracer import get_tracer, serialize
+from ..telemetry.tracer import get_tracer
 from ..tools._caller import _ToolCaller
 from ..tools.executors import ConcurrentToolExecutor
 from ..tools.executors._executor import ToolExecutor
 from ..tools.registry import ToolRegistry
-from ..tools.structured_output._structured_output_context import StructuredOutputContext
 from ..tools.watcher import ToolWatcher
 from ..types._events import AgentResultEvent, EventLoopStopEvent, InitEventLoopEvent, ModelStreamChunkEvent, TypedEvent
 from ..types.agent import AgentInput, ConcurrentInvocationMode
@@ -71,9 +67,6 @@ from .conversation_manager import (
 from .state import AgentState
 
 logger = logging.getLogger(__name__)
-
-# TypeVar for generic structured output
-T = TypeVar("T", bound=BaseModel)
 
 
 # Sentinel class and object to distinguish between explicit None and default parameter value
@@ -128,7 +121,6 @@ class Agent(AgentBase):
         name: str | None = None,
         description: str | None = None,
         state: AgentState | dict | None = None,
-        plugins: list[Plugin] | None = None,
         hooks: list[HookProvider] | None = None,
         session_manager: SessionManager | None = None,
         structured_output_prompt: str | None = None,
@@ -179,10 +171,6 @@ class Agent(AgentBase):
                 Defaults to None.
             state: stateful information for the agent. Can be either an AgentState object, or a json serializable dict.
                 Defaults to an empty AgentState object.
-            plugins: List of Plugin instances to extend agent functionality.
-                Plugins are initialized with the agent instance after construction and can register hooks,
-                modify agent attributes, or perform other setup tasks.
-                Defaults to None.
             hooks: hooks to be added to the agent hook registry
                 Defaults to None.
             session_manager: Manager for handling agent sessions including conversation history and state.
@@ -272,8 +260,6 @@ class Agent(AgentBase):
 
         self.hooks = HookRegistry()
 
-        self._plugin_registry = _PluginRegistry(self)
-
         self._interrupt_state = _InterruptState()
 
         # Initialize lock for guarding concurrent invocations
@@ -320,10 +306,6 @@ class Agent(AgentBase):
         if hooks:
             for hook in hooks:
                 self.hooks.add_hook(hook)
-
-        if plugins:
-            for plugin in plugins:
-                self._plugin_registry.add_and_init(plugin)
 
         self.hooks.invoke_callbacks(AgentInitializedEvent(agent=self))
 
@@ -475,108 +457,6 @@ class Agent(AgentBase):
             _ = event
 
         return cast(AgentResult, event["result"])
-
-    def structured_output(self, output_model: type[T], prompt: AgentInput = None) -> T:
-        """This method allows you to get structured output from the agent.
-
-        If you pass in a prompt, it will be used temporarily without adding it to the conversation history.
-        If you don't pass in a prompt, it will use only the existing conversation history to respond.
-
-        For smaller models, you may want to use the optional prompt to add additional instructions to explicitly
-        instruct the model to output the structured data.
-
-        Args:
-            output_model: The output model (a JSON schema written as a Pydantic BaseModel)
-                that the agent will use when responding.
-            prompt: The prompt to use for the agent in various formats:
-                - str: Simple text input
-                - list[ContentBlock]: Multi-modal content blocks
-                - list[Message]: Complete messages with roles
-                - None: Use existing conversation history
-
-        Raises:
-            ValueError: If no conversation history or prompt is provided.
-        """
-        warnings.warn(
-            "Agent.structured_output method is deprecated."
-            " You should pass in `structured_output_model` directly into the agent invocation."
-            " see: https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/structured-output/",
-            category=DeprecationWarning,
-            stacklevel=2,
-        )
-
-        return run_async(lambda: self.structured_output_async(output_model, prompt))
-
-    async def structured_output_async(self, output_model: type[T], prompt: AgentInput = None) -> T:
-        """This method allows you to get structured output from the agent.
-
-        If you pass in a prompt, it will be used temporarily without adding it to the conversation history.
-        If you don't pass in a prompt, it will use only the existing conversation history to respond.
-
-        For smaller models, you may want to use the optional prompt to add additional instructions to explicitly
-        instruct the model to output the structured data.
-
-        Args:
-            output_model: The output model (a JSON schema written as a Pydantic BaseModel)
-                that the agent will use when responding.
-            prompt: The prompt to use for the agent (will not be added to conversation history).
-
-        Raises:
-            ValueError: If no conversation history or prompt is provided.
-        -
-        """
-        if self._interrupt_state.activated:
-            raise RuntimeError("cannot call structured output during interrupt")
-
-        warnings.warn(
-            "Agent.structured_output_async method is deprecated."
-            " You should pass in `structured_output_model` directly into the agent invocation."
-            " see: https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/structured-output/",
-            category=DeprecationWarning,
-            stacklevel=2,
-        )
-        await self.hooks.invoke_callbacks_async(BeforeInvocationEvent(agent=self, invocation_state={}))
-        with self.tracer.tracer.start_as_current_span(
-            "execute_structured_output", kind=trace_api.SpanKind.CLIENT
-        ) as structured_output_span:
-            try:
-                if not self.messages and not prompt:
-                    raise ValueError("No conversation history or prompt provided")
-
-                temp_messages: Messages = self.messages + await self._convert_prompt_to_messages(prompt)
-
-                structured_output_span.set_attributes(
-                    {
-                        "gen_ai.system": "strands-agents",
-                        "gen_ai.agent.name": self.name,
-                        "gen_ai.agent.id": self.agent_id,
-                        "gen_ai.operation.name": "execute_structured_output",
-                    }
-                )
-                if self.system_prompt:
-                    structured_output_span.add_event(
-                        "gen_ai.system.message",
-                        attributes={"role": "system", "content": serialize([{"text": self.system_prompt}])},
-                    )
-                for message in temp_messages:
-                    structured_output_span.add_event(
-                        f"gen_ai.{message['role']}.message",
-                        attributes={"role": message["role"], "content": serialize(message["content"])},
-                    )
-                events = self.model.structured_output(output_model, temp_messages, system_prompt=self.system_prompt)
-                async for event in events:
-                    if isinstance(event, TypedEvent):
-                        event.prepare(invocation_state={})
-                        if event.is_callback_event:
-                            self.callback_handler(**event.as_dict())
-
-                structured_output_span.add_event(
-                    "gen_ai.choice", attributes={"message": serialize(event["output"].model_dump())}
-                )
-                return event["output"]
-
-            finally:
-                await self.hooks.invoke_callbacks_async(AfterInvocationEvent(agent=self, invocation_state={}))
 
     def cleanup(self) -> None:
         """Clean up resources used by the agent.
@@ -788,13 +668,8 @@ class Agent(AgentBase):
 
             await self._append_messages(*messages)
 
-            structured_output_context = StructuredOutputContext(
-                structured_output_model or self._default_structured_output_model,
-                structured_output_prompt=structured_output_prompt or self._structured_output_prompt,
-            )
-
             # Execute the event loop cycle with retry logic for context limits
-            events = self._execute_event_loop_cycle(invocation_state, structured_output_context)
+            events = self._execute_event_loop_cycle(invocation_state)
             async for event in events:
                 # Signal from the model provider that the message sent by the user should be redacted,
                 # likely due to a guardrail.
@@ -822,7 +697,7 @@ class Agent(AgentBase):
             )
 
     async def _execute_event_loop_cycle(
-        self, invocation_state: dict[str, Any], structured_output_context: StructuredOutputContext | None = None
+        self, invocation_state: dict[str, Any]
     ) -> AsyncGenerator[TypedEvent, None]:
         """Execute the event loop cycle with retry logic for context window limits.
 
@@ -832,7 +707,6 @@ class Agent(AgentBase):
 
         Args:
             invocation_state: Additional parameters to pass to the event loop.
-            structured_output_context: Optional structured output context for this invocation.
 
         Yields:
             Events of the loop cycle.
@@ -840,14 +714,10 @@ class Agent(AgentBase):
         # Add `Agent` to invocation_state to keep backwards-compatibility
         invocation_state["agent"] = self
 
-        if structured_output_context:
-            structured_output_context.register_tool(self.tool_registry)
-
         try:
             events = event_loop_cycle(
                 agent=self,
                 invocation_state=invocation_state,
-                structured_output_context=structured_output_context,
             )
             async for event in events:
                 yield event
@@ -860,13 +730,9 @@ class Agent(AgentBase):
             if self._session_manager:
                 self._session_manager.sync_agent(self)
 
-            events = self._execute_event_loop_cycle(invocation_state, structured_output_context)
+            events = self._execute_event_loop_cycle(invocation_state)
             async for event in events:
                 yield event
-
-        finally:
-            if structured_output_context:
-                structured_output_context.cleanup(self.tool_registry)
 
     async def _convert_prompt_to_messages(self, prompt: AgentInput) -> Messages:
         if self._interrupt_state.activated:

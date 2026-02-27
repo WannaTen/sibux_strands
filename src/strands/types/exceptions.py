@@ -46,12 +46,6 @@ class ContextWindowOverflowException(Exception):
     pass
 
 
-class MCPClientInitializationError(Exception):
-    """Raised when the MCP server fails to initialize properly."""
-
-    pass
-
-
 class ModelThrottledException(Exception):
     """Exception raised when the model is throttled.
 
@@ -73,12 +67,6 @@ class ModelThrottledException(Exception):
 
 class SessionException(Exception):
     """Exception raised when session operations fail."""
-
-    pass
-
-
-class ToolProviderException(Exception):
-    """Exception raised when a tool provider fails to load or cleanup tools."""
 
     pass
 

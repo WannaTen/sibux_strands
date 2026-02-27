@@ -13,7 +13,7 @@ from typing import Any, Union
 
 from .._async import run_async
 from ..agent import AgentResult
-from ..interrupt import Interrupt
+from ..hooks.registry import Interrupt
 from ..types.event_loop import Metrics, Usage
 from ..types.multiagent import MultiAgentInput
 from ..types.traces import AttributeValue

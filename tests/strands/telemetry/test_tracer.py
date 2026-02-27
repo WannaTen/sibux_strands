@@ -11,7 +11,6 @@ from opentelemetry.trace import (
 
 from strands.telemetry.tracer import JSONEncoder, Tracer, get_tracer, serialize
 from strands.types.content import ContentBlock
-from strands.types.interrupt import InterruptResponseContent
 from strands.types.streaming import Metrics, StopReason, Usage
 
 
@@ -408,7 +407,7 @@ def test_start_swarm_span_with_contentblock_task(mock_tracer):
     [
         ([ContentBlock(text="Test message")], [{"type": "text", "content": "Test message"}]),
         (
-            [InterruptResponseContent(interruptResponse={"interruptId": "test-id", "response": "approved"})],
+            [{"interruptResponse": {"interruptId": "test-id", "response": "approved"}}],
             [{"type": "interrupt_response", "id": "test-id", "response": "approved"}],
         ),
     ],

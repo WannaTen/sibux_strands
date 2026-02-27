@@ -1,1 +1,0 @@
-"""Bidirectional streaming agent tests."""

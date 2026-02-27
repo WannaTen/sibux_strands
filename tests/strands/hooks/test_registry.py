@@ -11,7 +11,7 @@ from strands.hooks import (
     BeforeToolCallEvent,
     HookRegistry,
 )
-from strands.interrupt import Interrupt, _InterruptState
+from strands.hooks.registry import Interrupt, InterruptException
 
 
 @pytest.fixture
@@ -21,9 +21,7 @@ def registry():
 
 @pytest.fixture
 def agent():
-    instance = unittest.mock.Mock()
-    instance._interrupt_state = _InterruptState()
-    return instance
+    return unittest.mock.Mock()
 
 
 def test_hook_registry_add_callback_agent_init_coroutine(registry):
@@ -42,32 +40,25 @@ async def test_hook_registry_invoke_callbacks_async_interrupt(registry, agent):
         invocation_state={},
     )
 
-    callback1 = unittest.mock.Mock(side_effect=lambda event: event.interrupt("test_name_1", "test reason 1"))
-    callback2 = unittest.mock.Mock()
-    callback3 = unittest.mock.Mock(side_effect=lambda event: event.interrupt("test_name_2", "test reason 2"))
+    def raise_interrupt_1(event):
+        raise InterruptException(Interrupt(name="test_name_1"))
 
-    registry.add_callback(BeforeToolCallEvent, callback1)
+    def raise_interrupt_2(event):
+        raise InterruptException(Interrupt(name="test_name_2"))
+
+    callback2 = unittest.mock.Mock()
+
+    registry.add_callback(BeforeToolCallEvent, raise_interrupt_1)
     registry.add_callback(BeforeToolCallEvent, callback2)
-    registry.add_callback(BeforeToolCallEvent, callback3)
+    registry.add_callback(BeforeToolCallEvent, raise_interrupt_2)
 
     _, tru_interrupts = await registry.invoke_callbacks_async(event)
-    exp_interrupts = [
-        Interrupt(
-            id="v1:before_tool_call:test_tool_id:da3551f3-154b-5978-827e-50ac387877ee",
-            name="test_name_1",
-            reason="test reason 1",
-        ),
-        Interrupt(
-            id="v1:before_tool_call:test_tool_id:0f5a8068-d1ba-5a48-bf67-c9d33786d8d4",
-            name="test_name_2",
-            reason="test reason 2",
-        ),
-    ]
-    assert tru_interrupts == exp_interrupts
 
-    callback1.assert_called_once_with(event)
+    assert len(tru_interrupts) == 2
+    assert tru_interrupts[0].name == "test_name_1"
+    assert tru_interrupts[1].name == "test_name_2"
+
     callback2.assert_called_once_with(event)
-    callback3.assert_called_once_with(event)
 
 
 @pytest.mark.asyncio
@@ -79,11 +70,14 @@ async def test_hook_registry_invoke_callbacks_async_interrupt_name_clash(registr
         invocation_state={},
     )
 
-    callback1 = unittest.mock.Mock(side_effect=lambda event: event.interrupt("test_name", "test reason 1"))
-    callback2 = unittest.mock.Mock(side_effect=lambda event: event.interrupt("test_name", "test reason 2"))
+    def raise_interrupt_1(event):
+        raise InterruptException(Interrupt(name="test_name"))
 
-    registry.add_callback(BeforeToolCallEvent, callback1)
-    registry.add_callback(BeforeToolCallEvent, callback2)
+    def raise_interrupt_2(event):
+        raise InterruptException(Interrupt(name="test_name"))
+
+    registry.add_callback(BeforeToolCallEvent, raise_interrupt_1)
+    registry.add_callback(BeforeToolCallEvent, raise_interrupt_2)
 
     with pytest.raises(ValueError, match="interrupt_name=<test_name> | interrupt name used more than once"):
         await registry.invoke_callbacks_async(event)

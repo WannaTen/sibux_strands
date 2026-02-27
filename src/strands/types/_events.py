@@ -11,9 +11,7 @@ from typing import TYPE_CHECKING, Any, cast
 from pydantic import BaseModel
 from typing_extensions import override
 
-from ..interrupt import Interrupt
 from ..telemetry import EventLoopMetrics
-from .citations import Citation
 from .content import Message
 from .event_loop import Metrics, StopReason, Usage
 from .streaming import ContentBlockDelta, StreamEvent
@@ -160,7 +158,7 @@ class TextStreamEvent(ModelStreamEvent):
 class CitationStreamEvent(ModelStreamEvent):
     """Event emitted during citation streaming."""
 
-    def __init__(self, delta: ContentBlockDelta, citation: Citation) -> None:
+    def __init__(self, delta: ContentBlockDelta, citation: Any) -> None:
         """Initialize with delta and citation content."""
         super().__init__({"citation": citation, "delta": delta})
 
@@ -224,7 +222,7 @@ class EventLoopStopEvent(TypedEvent):
         message: Message,
         metrics: "EventLoopMetrics",
         request_state: Any,
-        interrupts: Sequence[Interrupt] | None = None,
+        interrupts: Sequence[Any] | None = None,
         structured_output: BaseModel | None = None,
     ) -> None:
         """Initialize with the final execution results.
@@ -349,7 +347,7 @@ class ToolCancelEvent(TypedEvent):
 class ToolInterruptEvent(TypedEvent):
     """Event emitted when a tool is interrupted."""
 
-    def __init__(self, tool_use: ToolUse, interrupts: list[Interrupt]) -> None:
+    def __init__(self, tool_use: ToolUse, interrupts: list[Any]) -> None:
         """Set interrupt in the event payload."""
         super().__init__({"tool_interrupt_event": {"tool_use": tool_use, "interrupts": interrupts}})
 
@@ -359,9 +357,9 @@ class ToolInterruptEvent(TypedEvent):
         return cast(ToolUse, cast(dict, self.get("tool_interrupt_event")).get("tool_use"))["toolUseId"]
 
     @property
-    def interrupts(self) -> list[Interrupt]:
+    def interrupts(self) -> list[Any]:
         """The interrupt instances."""
-        return cast(list[Interrupt], self["tool_interrupt_event"]["interrupts"])
+        return cast(list[Any], self["tool_interrupt_event"]["interrupts"])
 
 
 class ModelMessageEvent(TypedEvent):
@@ -554,7 +552,7 @@ class MultiAgentNodeCancelEvent(TypedEvent):
 class MultiAgentNodeInterruptEvent(TypedEvent):
     """Event emitted when a node is interrupted."""
 
-    def __init__(self, node_id: str, interrupts: list[Interrupt]) -> None:
+    def __init__(self, node_id: str, interrupts: list[Any]) -> None:
         """Set interrupt in the event payload.
 
         Args:
@@ -570,6 +568,6 @@ class MultiAgentNodeInterruptEvent(TypedEvent):
         )
 
     @property
-    def interrupts(self) -> list[Interrupt]:
+    def interrupts(self) -> list[Any]:
         """The interrupt instances."""
-        return cast(list[Interrupt], self["interrupts"])
+        return cast(list[Any], self["interrupts"])

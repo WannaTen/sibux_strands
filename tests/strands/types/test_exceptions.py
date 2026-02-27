@@ -6,7 +6,6 @@ from strands.types.exceptions import (
     ContextWindowOverflowException,
     EventLoopException,
     MaxTokensReachedException,
-    MCPClientInitializationError,
     ModelThrottledException,
     SessionException,
     StructuredOutputException,
@@ -129,37 +128,6 @@ class TestContextWindowOverflowException:
             raise ContextWindowOverflowException("Input too large for model")
 
         assert str(exc_info.value) == "Input too large for model"
-
-
-class TestMCPClientInitializationError:
-    """Tests for MCPClientInitializationError class."""
-
-    def test_initialization(self):
-        """Test MCPClientInitializationError initialization."""
-        exception = MCPClientInitializationError()
-
-        assert isinstance(exception, Exception)
-        assert str(exception) == ""
-
-    def test_initialization_with_message(self):
-        """Test MCPClientInitializationError with custom message."""
-        exception = MCPClientInitializationError("Failed to connect to MCP server")
-
-        assert str(exception) == "Failed to connect to MCP server"
-
-    def test_inheritance(self):
-        """Test that MCPClientInitializationError inherits from Exception."""
-        exception = MCPClientInitializationError()
-
-        assert isinstance(exception, Exception)
-        assert issubclass(MCPClientInitializationError, Exception)
-
-    def test_exception_with_detailed_error(self):
-        """Test exception with detailed initialization error."""
-        message = "MCP server initialization failed: Connection refused on port 8080"
-        exception = MCPClientInitializationError(message)
-
-        assert str(exception) == message
 
 
 class TestModelThrottledException:
@@ -286,7 +254,6 @@ class TestExceptionInheritance:
             EventLoopException,
             MaxTokensReachedException,
             ContextWindowOverflowException,
-            MCPClientInitializationError,
             ModelThrottledException,
             SessionException,
             StructuredOutputException,
@@ -301,7 +268,6 @@ class TestExceptionInheritance:
             EventLoopException(ValueError("test")),
             MaxTokensReachedException("test"),
             ContextWindowOverflowException("test"),
-            MCPClientInitializationError("test"),
             ModelThrottledException("test"),
             SessionException("test"),
             StructuredOutputException("test"),
@@ -316,7 +282,6 @@ class TestExceptionInheritance:
             (EventLoopException, ValueError("test"), None),
             (MaxTokensReachedException, "test", None),
             (ContextWindowOverflowException, "test", None),
-            (MCPClientInitializationError, "test", None),
             (ModelThrottledException, "test", None),
             (SessionException, "test", None),
             (StructuredOutputException, "test", None),
@@ -342,7 +307,6 @@ class TestExceptionMessages:
             (EventLoopException(ValueError("event loop error")), "event loop error"),
             (MaxTokensReachedException("max tokens"), "max tokens"),
             (ContextWindowOverflowException("overflow"), "overflow"),
-            (MCPClientInitializationError("init error"), "init error"),
             (ModelThrottledException("throttled"), "throttled"),
             (SessionException("session error"), "session error"),
             (StructuredOutputException("output error"), "output error"),
@@ -357,7 +321,6 @@ class TestExceptionMessages:
             EventLoopException(ValueError("test")),
             MaxTokensReachedException("test"),
             ContextWindowOverflowException("test"),
-            MCPClientInitializationError("test"),
             ModelThrottledException("test"),
             SessionException("test"),
             StructuredOutputException("test"),

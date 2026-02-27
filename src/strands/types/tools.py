@@ -14,7 +14,9 @@ from typing import Any, Literal, Protocol
 from typing_extensions import NotRequired, TypedDict
 
 from .interrupt import _Interruptible
-from .media import DocumentContent, ImageContent
+
+DocumentContent = dict
+ImageContent = dict
 
 JSONSchema = dict
 """Type alias for JSON Schema dictionaries."""

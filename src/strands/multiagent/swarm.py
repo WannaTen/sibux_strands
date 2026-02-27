@@ -34,8 +34,8 @@ from ..hooks.events import (
     BeforeNodeCallEvent,
     MultiAgentInitializedEvent,
 )
-from ..hooks.registry import HookProvider, HookRegistry
-from ..interrupt import Interrupt, _InterruptState
+from ..agent.agent import _InterruptState
+from ..hooks.registry import HookProvider, HookRegistry, Interrupt
 from ..session import SessionManager
 from ..telemetry import get_tracer
 from ..tools.decorator import tool

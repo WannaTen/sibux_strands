@@ -9,7 +9,6 @@ from typing import Any, cast
 
 from pydantic import BaseModel
 
-from ..interrupt import Interrupt
 from ..telemetry.metrics import EventLoopMetrics
 from ..types.content import Message
 from ..types.streaming import StopReason
@@ -32,7 +31,7 @@ class AgentResult:
     message: Message
     metrics: EventLoopMetrics
     state: Any
-    interrupts: Sequence[Interrupt] | None = None
+    interrupts: Sequence[Any] | None = None
     structured_output: BaseModel | None = None
 
     def __str__(self) -> str:
@@ -47,7 +46,7 @@ class AgentResult:
             String representation based on the priority order above.
         """
         if self.interrupts:
-            return str([interrupt.to_dict() for interrupt in self.interrupts])
+            return str(self.interrupts)
 
         if self.structured_output:
             return self.structured_output.model_dump_json()

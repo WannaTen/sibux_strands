@@ -9,7 +9,6 @@ import pytest
 import strands
 from strands.tools import PythonAgentTool, ToolProvider
 from strands.tools.decorator import DecoratedFunctionTool, tool
-from strands.tools.mcp import MCPClient
 from strands.tools.registry import ToolRegistry
 
 
@@ -262,30 +261,6 @@ def test_register_strands_tools_module_non_callable_function():
         " Tool tool_with_spec_but_non_callable_function function is not callable",
     ):
         tool_registry.process_tools(["tests.fixtures.tool_with_spec_but_non_callable_function"])
-
-
-def test_tool_registry_cleanup_with_mcp_client():
-    """Test that ToolRegistry cleanup properly handles MCP clients without orphaning threads."""
-    # Create a mock MCP client that simulates a real tool provider
-    mock_transport = MagicMock()
-    mock_client = MCPClient(mock_transport)
-
-    # Mock the client to avoid actual network operations
-    mock_client.load_tools = AsyncMock(return_value=[])
-
-    registry = ToolRegistry()
-
-    # Use process_tools to properly register the client
-    registry.process_tools([mock_client])
-
-    # Verify the client was registered as a consumer
-    assert registry._registry_id in mock_client._consumers
-
-    # Test cleanup calls remove_consumer
-    registry.cleanup()
-
-    # Verify cleanup was attempted
-    assert registry._registry_id not in mock_client._consumers
 
 
 def test_tool_registry_cleanup_exception_handling():

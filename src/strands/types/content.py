@@ -10,9 +10,10 @@ from typing import Literal
 
 from typing_extensions import NotRequired, TypedDict
 
-from .citations import CitationsContentBlock
-from .media import DocumentContent, ImageContent, VideoContent
 from .tools import ToolResult, ToolUse
+
+DocumentContent = dict
+ImageContent = dict
 
 
 class GuardContentText(TypedDict):
@@ -76,27 +77,19 @@ class ContentBlock(TypedDict, total=False):
 
     Attributes:
         cachePoint: A cache point configuration to optimize conversation history.
-        document: A document to include in the message.
         guardContent: Contains the content to assess with the guardrail.
-        image: Image to include in the message.
         reasoningContent: Contains content regarding the reasoning that is carried out by the model.
         text: Text to include in the message.
         toolResult: The result for a tool request that a model makes.
         toolUse: Information about a tool use request from a model.
-        video: Video to include in the message.
-        citationsContent: Contains the citations for a document.
     """
 
     cachePoint: CachePoint
-    document: DocumentContent
     guardContent: GuardContent
-    image: ImageContent
     reasoningContent: ReasoningContentBlock
     text: str
     toolResult: ToolResult
     toolUse: ToolUse
-    video: VideoContent
-    citationsContent: CitationsContentBlock
 
 
 class SystemContentBlock(TypedDict, total=False):

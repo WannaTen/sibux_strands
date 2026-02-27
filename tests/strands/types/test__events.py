@@ -29,7 +29,6 @@ from strands.types._events import (
     ToolUseStreamEvent,
     TypedEvent,
 )
-from strands.types.citations import Citation
 from strands.types.content import Message
 from strands.types.event_loop import Metrics, StopReason, Usage
 from strands.types.streaming import ContentBlockDelta, StreamEvent
@@ -193,7 +192,7 @@ class TestCitationStreamEvent:
     def test_initialization(self):
         """Test CitationStreamEvent initialization."""
         delta = Mock(spec=ContentBlockDelta)
-        citation = Mock(spec=Citation)
+        citation = Mock()
         event = CitationStreamEvent(delta, citation)
         assert event["citation"] == citation
         assert event["delta"] == delta
