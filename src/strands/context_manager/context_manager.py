@@ -3,30 +3,30 @@
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
-from ...hooks.registry import HookProvider, HookRegistry
-from ...types.content import Message
+from ..hooks.registry import HookProvider, HookRegistry
+from ..types.content import Message
 
 if TYPE_CHECKING:
-    from ...agent.agent import Agent
+    from ..agent.agent import Agent
 
 
-class ConversationManager(ABC, HookProvider):
+class ContextManager(ABC, HookProvider):
     """Abstract base class for managing conversation history.
 
-    This class provides an interface for implementing conversation management strategies to control the size of message
+    This class provides an interface for implementing context management strategies to control the size of message
     arrays/conversation histories, helping to:
 
     - Manage memory usage
     - Control context length
     - Maintain relevant conversation state
 
-    ConversationManager implements the HookProvider protocol, allowing derived classes to register hooks for agent
+    ContextManager implements the HookProvider protocol, allowing derived classes to register hooks for agent
     lifecycle events. Derived classes that override register_hooks must call the base implementation to ensure proper
     hook registration.
 
     Example:
         ```python
-        class MyConversationManager(ConversationManager):
+        class MyContextManager(ContextManager):
             def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
                 super().register_hooks(registry, **kwargs)
                 # Register additional hooks here
@@ -34,12 +34,12 @@ class ConversationManager(ABC, HookProvider):
     """
 
     def __init__(self) -> None:
-        """Initialize the ConversationManager.
+        """Initialize the ContextManager.
 
         Attributes:
           removed_message_count: The messages that have been removed from the agents messages array.
               These represent messages provided by the user or LLM that have been removed, not messages
-              included by the conversation manager through something like summarization.
+              included by the context manager through something like summarization.
         """
         self.removed_message_count = 0
 
@@ -63,20 +63,20 @@ class ConversationManager(ABC, HookProvider):
         pass
 
     def restore_from_session(self, state: dict[str, Any]) -> list[Message] | None:
-        """Restore the Conversation Manager's state from a session.
+        """Restore the Context Manager's state from a session.
 
         Args:
-            state: Previous state of the conversation manager
+            state: Previous state of the context manager
         Returns:
             Optional list of messages to prepend to the agents messages. By default returns None.
         """
         if state.get("__name__") != self.__class__.__name__:
-            raise ValueError("Invalid conversation manager state.")
+            raise ValueError("Invalid context manager state.")
         self.removed_message_count = state["removed_message_count"]
         return None
 
     def get_state(self) -> dict[str, Any]:
-        """Get the current state of a Conversation Manager as a Json serializable dictionary."""
+        """Get the current state of a Context Manager as a Json serializable dictionary."""
         return {
             "__name__": self.__class__.__name__,
             "removed_message_count": self.removed_message_count,

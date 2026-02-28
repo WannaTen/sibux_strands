@@ -5,14 +5,14 @@ from typing import TYPE_CHECKING, Any, Optional, cast
 
 from typing_extensions import override
 
-from ..._async import run_async
-from ...event_loop.streaming import process_stream
-from ...tools._tool_helpers import noop_tool
-from ...tools.registry import ToolRegistry
-from ...types.content import Message
-from ...types.exceptions import ContextWindowOverflowException
-from ...types.tools import AgentTool
-from .conversation_manager import ConversationManager
+from .._async import run_async
+from ..event_loop.streaming import process_stream
+from ..tools._tool_helpers import noop_tool
+from ..tools.registry import ToolRegistry
+from ..types.content import Message
+from ..types.exceptions import ContextWindowOverflowException
+from ..types.tools import AgentTool
+from .context_manager import ContextManager
 
 if TYPE_CHECKING:
     from ..agent import Agent
@@ -51,7 +51,7 @@ Example format:
 * Tool X: Result Y"""
 
 
-class SummarizingConversationManager(ConversationManager):
+class SummarizingContextManager(ContextManager):
     """Implements a summarizing window manager.
 
     This manager provides a configurable option to summarize older context instead of
@@ -66,7 +66,7 @@ class SummarizingConversationManager(ConversationManager):
         summarization_agent: Optional["Agent"] = None,
         summarization_system_prompt: str | None = None,
     ):
-        """Initialize the summarizing conversation manager.
+        """Initialize the summarizing context manager.
 
         Args:
             summary_ratio: Ratio of messages to summarize vs keep when context overflow occurs.
@@ -93,10 +93,10 @@ class SummarizingConversationManager(ConversationManager):
 
     @override
     def restore_from_session(self, state: dict[str, Any]) -> list[Message] | None:
-        """Restores the Summarizing Conversation manager from its previous state in a session.
+        """Restores the Summarizing Context manager from its previous state in a session.
 
         Args:
-            state: The previous state of the Summarizing Conversation Manager.
+            state: The previous state of the Summarizing Context Manager.
 
         Returns:
             Optionally returns the previous conversation summary if it exists.
@@ -106,13 +106,13 @@ class SummarizingConversationManager(ConversationManager):
         return [self._summary_message] if self._summary_message else None
 
     def get_state(self) -> dict[str, Any]:
-        """Returns a dictionary representation of the state for the Summarizing Conversation Manager."""
+        """Returns a dictionary representation of the state for the Summarizing Context Manager."""
         return {"summary_message": self._summary_message, **super().get_state()}
 
     def apply_management(self, agent: "Agent", **kwargs: Any) -> None:
         """Apply management strategy to conversation history.
 
-        For the summarizing conversation manager, no proactive management is performed.
+        For the summarizing context manager, no proactive management is performed.
         Summarization only occurs when there's a context overflow that triggers reduce_context.
 
         Args:
@@ -288,7 +288,7 @@ class SummarizingConversationManager(ConversationManager):
     def _adjust_split_point_for_tool_pairs(self, messages: list[Message], split_point: int) -> int:
         """Adjust the split point to avoid breaking ToolUse/ToolResult pairs.
 
-        Uses the same logic as SlidingWindowConversationManager for consistency.
+        Uses the same logic as SlidingWindowContextManager for consistency.
 
         Args:
             messages: The full list of messages.

@@ -4,17 +4,17 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from ...agent.agent import Agent
+    from ..agent.agent import Agent
 
-from ...hooks import BeforeModelCallEvent, HookRegistry
-from ...types.content import Messages
-from ...types.exceptions import ContextWindowOverflowException
-from .conversation_manager import ConversationManager
+from ..hooks import BeforeModelCallEvent, HookRegistry
+from ..types.content import Messages
+from ..types.exceptions import ContextWindowOverflowException
+from .context_manager import ContextManager
 
 logger = logging.getLogger(__name__)
 
 
-class SlidingWindowConversationManager(ConversationManager):
+class SlidingWindowContextManager(ContextManager):
     """Implements a sliding window strategy for managing conversation history.
 
     This class handles the logic of maintaining a conversation window that preserves tool usage pairs and avoids
@@ -24,7 +24,7 @@ class SlidingWindowConversationManager(ConversationManager):
     """
 
     def __init__(self, window_size: int = 40, should_truncate_results: bool = True, *, per_turn: bool | int = False):
-        """Initialize the sliding window conversation manager.
+        """Initialize the sliding window context manager.
 
         Args:
             window_size: Maximum number of messages to keep in the agent's history.
@@ -52,7 +52,7 @@ class SlidingWindowConversationManager(ConversationManager):
         self._model_call_count = 0
 
     def register_hooks(self, registry: "HookRegistry", **kwargs: Any) -> None:
-        """Register hook callbacks for per-turn conversation management.
+        """Register hook callbacks for per-turn context management.
 
         Args:
             registry: The hook registry to register callbacks with.
@@ -87,14 +87,14 @@ class SlidingWindowConversationManager(ConversationManager):
 
         if should_apply:
             logger.debug(
-                "model_call_count=<%d>, per_turn=<%s> | applying per-turn conversation management",
+                "model_call_count=<%d>, per_turn=<%s> | applying per-turn context management",
                 self._model_call_count,
                 self.per_turn,
             )
             self.apply_management(event.agent)
 
     def get_state(self) -> dict[str, Any]:
-        """Get the current state of the conversation manager.
+        """Get the current state of the context manager.
 
         Returns:
             Dictionary containing the manager's state, including model call count for per-turn tracking.
@@ -104,10 +104,10 @@ class SlidingWindowConversationManager(ConversationManager):
         return state
 
     def restore_from_session(self, state: dict[str, Any]) -> list | None:
-        """Restore the conversation manager's state from a session.
+        """Restore the context manager's state from a session.
 
         Args:
-            state: Previous state of the conversation manager
+            state: Previous state of the context manager
 
         Returns:
             Optional list of messages to prepend to the agent's messages.

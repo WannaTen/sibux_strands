@@ -1,20 +1,20 @@
-"""Null implementation of conversation management."""
+"""Null implementation of context management."""
 
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from ...agent.agent import Agent
+    from ..agent.agent import Agent
 
-from ...types.exceptions import ContextWindowOverflowException
-from .conversation_manager import ConversationManager
+from ..types.exceptions import ContextWindowOverflowException
+from .context_manager import ContextManager
 
 
-class NullConversationManager(ConversationManager):
-    """A no-op conversation manager that does not modify the conversation history.
+class NullContextManager(ContextManager):
+    """A no-op context manager that does not modify the conversation history.
 
     Useful for:
 
-    - Testing scenarios where conversation management should be disabled
+    - Testing scenarios where context management should be disabled
     - Cases where conversation history is managed externally
     - Situations where the full conversation history should be preserved
     """
