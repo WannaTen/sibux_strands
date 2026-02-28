@@ -50,13 +50,13 @@ When proposing solutions or reviewing code, we reference these principles to gui
 
 ## Development Environment
 
-This project uses [hatchling](https://hatch.pypa.io/latest/build/#hatchling) as the build backend and [hatch](https://hatch.pypa.io/latest/) for development workflow management.
+This project uses [hatchling](https://hatch.pypa.io/latest/build/#hatchling) as the build backend and [uv](https://docs.astral.sh/uv/) for development workflow management.
 
 ### Setting Up Your Development Environment
 
-1. Entering virtual environment using `hatch` (recommended), then launch your IDE in the new shell.
+1. Install dependencies using `uv`:
    ```bash
-   hatch shell
+   uv sync
    ```
 
 
@@ -68,31 +68,32 @@ This project uses [hatchling](https://hatch.pypa.io/latest/build/#hatchling) as 
 
 3. Run code formatters manually:
    ```bash
-   hatch fmt --formatter
+   uv run ruff format
    ```
 
 4. Run linters:
    ```bash
-   hatch fmt --linter
+   uv run ruff check
+   uv run mypy ./src
    ```
 
 5. Run unit tests:
    ```bash
-   hatch test
+   uv run pytest
    ```
    Or run them with coverage:
    ```bash
-   hatch test -c
+   uv run pytest --cov --cov-config=pyproject.toml
    ```
 
 6. Run integration tests:
    ```bash
-   hatch run test-integ
+   uv run pytest tests_integ
    ```
 
 ### Pre-commit Hooks
 
-We use [pre-commit](https://pre-commit.com/) to automatically run quality checks before each commit. The hook will run `hatch run format`, `hatch run lint`, `hatch run test`, and `hatch run cz check` when you make a commit, ensuring code consistency.
+We use [pre-commit](https://pre-commit.com/) to automatically run quality checks before each commit. The hook will run `ruff format`, `ruff check`, `mypy`, `pytest`, and `cz check` when you make a commit, ensuring code consistency.
 
 The pre-commit hook is installed with:
 
@@ -116,8 +117,9 @@ These tools are configured in the [pyproject.toml](./pyproject.toml) file. Pleas
 
 ```bash
 # Run all checks
-hatch fmt --formatter
-hatch fmt --linter
+uv run ruff format
+uv run ruff check
+uv run mypy ./src
 ```
 
 If you're using an IDE like VS Code or PyCharm, consider configuring it to use these tools automatically.
@@ -138,9 +140,9 @@ To send us a pull request, please:
 
 1. Create a branch.
 2. Modify the source; please focus on the specific change you are contributing. If you also reformat all the code, it will be hard for us to focus on your change.
-3. Format your code using `hatch fmt --formatter`.
-4. Run linting checks with `hatch fmt --linter`.
-5. Ensure local tests pass with `hatch test` and `hatch run test-integ`.
+3. Format your code using `uv run ruff format`.
+4. Run linting checks with `uv run ruff check && uv run mypy ./src`.
+5. Ensure local tests pass with `uv run pytest` and `uv run pytest tests_integ`.
 6. Commit to your branch using clear commit messages following the [Conventional Commits](https://www.conventionalcommits.org) specification.
 7. Send us a pull request, answering any default questions in the pull request interface.
 8. Pay attention to any automated CI failures reported in the pull request, and stay involved in the conversation.

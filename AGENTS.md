@@ -233,7 +233,7 @@ strands-agents/
 ### 1. Environment Setup
 
 ```bash
-hatch shell                                    # Enter dev environment
+uv sync                                        # Install dependencies
 pre-commit install -t pre-commit -t commit-msg # Install hooks
 ```
 
@@ -407,11 +407,10 @@ from .tools import Tool
 ### Running Tests
 
 ```bash
-hatch test                           # Run unit tests
-hatch test -c                        # Run with coverage
-hatch run test-integ                 # Run integration tests
-hatch test tests/strands/agent/      # Run specific directory
-hatch test --all                     # Test all Python versions (3.10-3.13)
+uv run pytest                              # Run unit tests
+uv run pytest --cov --cov-config=pyproject.toml  # Run with coverage
+uv run pytest tests_integ                  # Run integration tests
+uv run pytest tests/strands/agent/         # Run specific directory
 ```
 
 ### Writing Tests
@@ -483,7 +482,7 @@ Task-augmented execution is used when ALL conditions are met:
 - Add type annotations everywhere
 - Use relative imports within packages
 - Mirror src/ structure in tests/
-- Run `hatch fmt --formatter` and `hatch fmt --linter` before committing
+- Run `uv run ruff format` and `uv run ruff check && uv run mypy ./src` before committing
 - Follow conventional commits (`feat:`, `fix:`, `docs:`, etc.)
 
 ## Things NOT to Do
@@ -500,26 +499,23 @@ Task-augmented execution is used when ALL conditions are met:
 
 ```bash
 # Environment
-hatch shell                    # Enter dev environment
+uv sync                        # Install dependencies
 
 # Formatting & Linting
-hatch fmt --formatter          # Format code
-hatch fmt --linter             # Run linters (ruff + mypy)
+uv run ruff format             # Format code
+uv run ruff check              # Run linter
+uv run mypy ./src              # Run type checker
 
 # Testing
-hatch test                     # Run unit tests
-hatch test -c                  # Run with coverage
-hatch run test-integ           # Run integration tests
-hatch test --all               # Test all Python versions
+uv run pytest                  # Run unit tests
+uv run pytest --cov --cov-config=pyproject.toml  # Run with coverage
+uv run pytest tests_integ      # Run integration tests
 
 # Pre-commit
 pre-commit run --all-files     # Run all hooks manually
 
-# Readiness Check
-hatch run prepare              # Run all checks (format, lint, test)
-
 # Build
-hatch build                    # Build package
+uv build                       # Build package
 ```
 
 ## Agent-Specific Notes
