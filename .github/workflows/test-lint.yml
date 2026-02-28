@@ -82,12 +82,13 @@ jobs:
         run: |
           # Windows typically has audio libraries available by default
           echo "Windows audio dependencies handled by PyAudio wheels"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
       - name: Install dependencies
-        run: |
-          pip install --no-cache-dir hatch
+        run: uv sync --all-extras
       - name: Run Unit tests
         id: tests
-        run: hatch test tests --cover
+        run: uv run pytest tests -n auto -vv --cov --cov-config=pyproject.toml --cov-report html --cov-report xml
         continue-on-error: false
 
       - name: Upload coverage reports to Codecov
@@ -110,19 +111,20 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: '3.10'
-          cache: 'pip'
 
       - name: Install system audio dependencies (Linux)
         run: |
           sudo apt-get update
           sudo apt-get install -y portaudio19-dev libasound2-dev
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
       - name: Install dependencies
-        run: |
-          pip install --no-cache-dir hatch
+        run: uv sync --all-extras
 
       - name: Run lint
         id: lint
-        run: hatch fmt --linter --check
+        run: |
+          uv run ruff check
+          uv run mypy ./src
         continue-on-error: false
-
