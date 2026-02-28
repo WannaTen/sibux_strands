@@ -5,8 +5,8 @@ from unittest.mock import Mock
 import pytest
 
 from strands.agent.agent import Agent
-from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
-from strands.agent.conversation_manager.summarizing_conversation_manager import SummarizingConversationManager
+from strands.context_manager.sliding_window_context_manager import SlidingWindowContextManager
+from strands.context_manager.summarizing_context_manager import SummarizingContextManager
 from strands.agent.state import AgentState
 from strands.interrupt import _InterruptState
 from strands.session.repository_session_manager import RepositorySessionManager
@@ -109,7 +109,7 @@ def test_initialize_restores_existing_agent(session_manager, agent):
     session_agent = SessionAgent(
         agent_id="existing-agent",
         state={"key": "value"},
-        conversation_manager_state=SlidingWindowConversationManager().get_state(),
+        context_manager_state=SlidingWindowContextManager().get_state(),
         _internal_state={"interrupt_state": {"interrupts": {}, "context": {"test": "init"}, "activated": False}},
     )
     session_manager.session_repository.create_agent("test-session", session_agent)
@@ -135,17 +135,17 @@ def test_initialize_restores_existing_agent(session_manager, agent):
     assert agent._interrupt_state == _InterruptState(interrupts={}, context={"test": "init"}, activated=False)
 
 
-def test_initialize_restores_existing_agent_with_summarizing_conversation_manager(session_manager):
+def test_initialize_restores_existing_agent_with_summarizing_context_manager(session_manager):
     """Test that initializing an existing agent restores its state."""
-    conversation_manager = SummarizingConversationManager()
-    conversation_manager.removed_message_count = 1
-    conversation_manager._summary_message = {"role": "assistant", "content": [{"text": "summary"}]}
+    context_manager = SummarizingContextManager()
+    context_manager.removed_message_count = 1
+    context_manager._summary_message = {"role": "assistant", "content": [{"text": "summary"}]}
 
     # Create agent in repository first
     session_agent = SessionAgent(
         agent_id="existing-agent",
         state={"key": "value"},
-        conversation_manager_state=conversation_manager.get_state(),
+        context_manager_state=context_manager.get_state(),
     )
     session_manager.session_repository.create_agent("test-session", session_agent)
 
@@ -157,13 +157,13 @@ def test_initialize_restores_existing_agent_with_summarizing_conversation_manage
         },
         message_id=0,
     )
-    # Create two messages as one will be removed by the conversation manager
+    # Create two messages as one will be removed by the context manager
     session_manager.session_repository.create_message("test-session", "existing-agent", message)
     message.message_id = 1
     session_manager.session_repository.create_message("test-session", "existing-agent", message)
 
     # Initialize agent
-    agent = Agent(agent_id="existing-agent", conversation_manager=SummarizingConversationManager())
+    agent = Agent(agent_id="existing-agent", context_manager=SummarizingContextManager())
     session_manager.initialize(agent)
 
     # Verify agent state restored
@@ -172,7 +172,7 @@ def test_initialize_restores_existing_agent_with_summarizing_conversation_manage
     assert len(agent.messages) == 2
     assert agent.messages[1]["role"] == "user"
     assert agent.messages[1]["content"][0]["text"] == "Hello"
-    assert agent.conversation_manager.removed_message_count == 1
+    assert agent.context_manager.removed_message_count == 1
 
 
 def test_append_message(session_manager):
@@ -238,13 +238,13 @@ def test_initialize_multi_agent_existing(session_manager, mock_multi_agent):
 
 def test_fix_broken_tool_use_adds_missing_tool_results(session_manager):
     """Test that _fix_broken_tool_use adds missing toolResult messages."""
-    conversation_manager = SlidingWindowConversationManager()
+    context_manager = SlidingWindowContextManager()
 
     # Create agent in repository first
     session_agent = SessionAgent(
         agent_id="existing-agent",
         state={"key": "value"},
-        conversation_manager_state=conversation_manager.get_state(),
+        context_manager_state=context_manager.get_state(),
     )
     session_manager.session_repository.create_agent("test-session", session_agent)
 
@@ -279,12 +279,12 @@ def test_fix_broken_tool_use_adds_missing_tool_results(session_manager):
 
 def test_fix_broken_tool_use_extends_partial_tool_results(session_manager):
     """Test fixing messages where some toolResults are missing."""
-    conversation_manager = SlidingWindowConversationManager()
+    context_manager = SlidingWindowContextManager()
     # Create agent in repository first
     session_agent = SessionAgent(
         agent_id="existing-agent",
         state={"key": "value"},
-        conversation_manager_state=conversation_manager.get_state(),
+        context_manager_state=context_manager.get_state(),
     )
     session_manager.session_repository.create_agent("test-session", session_agent)
 
@@ -333,12 +333,12 @@ def test_fix_broken_tool_use_extends_partial_tool_results(session_manager):
 def test_fix_broken_tool_use_handles_multiple_orphaned_tools(session_manager):
     """Test fixing multiple orphaned toolUse messages."""
 
-    conversation_manager = SlidingWindowConversationManager()
+    context_manager = SlidingWindowContextManager()
     # Create agent in repository first
     session_agent = SessionAgent(
         agent_id="existing-agent",
         state={"key": "value"},
-        conversation_manager_state=conversation_manager.get_state(),
+        context_manager_state=context_manager.get_state(),
     )
     session_manager.session_repository.create_agent("test-session", session_agent)
 
@@ -440,7 +440,7 @@ def test_initialize_bidi_agent_creates_new(session_manager, mock_bidi_agent):
     agent_data = session_manager.session_repository.read_agent("test-session", "bidi-agent-1")
     assert agent_data is not None
     assert agent_data.agent_id == "bidi-agent-1"
-    assert agent_data.conversation_manager_state == {}  # Empty for BidiAgent
+    assert agent_data.context_manager_state == {}  # Empty for BidiAgent
     assert agent_data.state == {"key": "value"}
 
     # Verify message created
@@ -455,7 +455,7 @@ def test_initialize_bidi_agent_restores_existing(session_manager, mock_bidi_agen
     session_agent = SessionAgent(
         agent_id="bidi-agent-1",
         state={"restored": "state"},
-        conversation_manager_state={},  # Empty for BidiAgent
+        context_manager_state={},  # Empty for BidiAgent
     )
     session_manager.session_repository.create_agent("test-session", session_agent)
 
@@ -508,13 +508,13 @@ def test_sync_bidi_agent(session_manager, mock_bidi_agent):
     assert agent_data.state == {"updated": "state"}
 
 
-def test_bidi_agent_no_conversation_manager(session_manager, mock_bidi_agent):
-    """Test that BidiAgent session doesn't use conversation_manager."""
+def test_bidi_agent_no_context_manager(session_manager, mock_bidi_agent):
+    """Test that BidiAgent session doesn't use context_manager."""
     session_manager.initialize_bidi_agent(mock_bidi_agent)
 
-    # Verify conversation_manager_state is empty
+    # Verify context_manager_state is empty
     agent_data = session_manager.session_repository.read_agent("test-session", "bidi-agent-1")
-    assert agent_data.conversation_manager_state == {}
+    assert agent_data.context_manager_state == {}
 
 
 def test_bidi_agent_unique_id_constraint(session_manager, mock_bidi_agent):
@@ -533,12 +533,12 @@ def test_bidi_agent_unique_id_constraint(session_manager, mock_bidi_agent):
 
 
 def test_bidi_agent_messages_with_offset_zero(session_manager, mock_bidi_agent):
-    """Test that BidiAgent uses offset=0 for message restoration (no conversation_manager)."""
+    """Test that BidiAgent uses offset=0 for message restoration (no context_manager)."""
     # Create session with messages
     session_agent = SessionAgent(
         agent_id="bidi-agent-1",
         state={},
-        conversation_manager_state={},
+        context_manager_state={},
     )
     session_manager.session_repository.create_agent("test-session", session_agent)
 

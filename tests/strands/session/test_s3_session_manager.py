@@ -9,7 +9,7 @@ from botocore.config import Config as BotocoreConfig
 from botocore.exceptions import ClientError
 from moto import mock_aws
 
-from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
+from strands.context_manager.null_context_manager import NullContextManager
 from strands.session.s3_session_manager import S3SessionManager
 from strands.types.content import ContentBlock
 from strands.types.exceptions import SessionException
@@ -56,7 +56,7 @@ def sample_agent():
     return SessionAgent(
         agent_id="test-agent-456",
         state={"key": "value"},
-        conversation_manager_state=NullConversationManager().get_state(),
+        context_manager_state=NullContextManager().get_state(),
     )
 
 

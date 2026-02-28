@@ -4,9 +4,9 @@ from unittest.mock import Mock, patch
 import pytest
 
 from strands.agent.agent import Agent
-from strands.agent.conversation_manager.summarizing_conversation_manager import (
+from strands.context_manager.summarizing_context_manager import (
     DEFAULT_SUMMARIZATION_PROMPT,
-    SummarizingConversationManager,
+    SummarizingContextManager,
 )
 from strands.types.content import Messages
 from strands.types.exceptions import ContextWindowOverflowException
@@ -72,8 +72,8 @@ def mock_agent():
 
 @pytest.fixture
 def summarizing_manager():
-    """Fixture for summarizing conversation manager with default settings."""
-    return SummarizingConversationManager(
+    """Fixture for summarizing context manager with default settings."""
+    return SummarizingContextManager(
         summary_ratio=0.5,
         preserve_recent_messages=2,
     )
@@ -81,7 +81,7 @@ def summarizing_manager():
 
 def test_init_default_values():
     """Test initialization with default values."""
-    manager = SummarizingConversationManager()
+    manager = SummarizingContextManager()
 
     assert manager.summarization_agent is None
     assert manager.summary_ratio == 0.3
@@ -91,17 +91,17 @@ def test_init_default_values():
 def test_init_clamps_summary_ratio():
     """Test that summary_ratio is clamped to valid range."""
     # Test lower bound
-    manager = SummarizingConversationManager(summary_ratio=0.05)
+    manager = SummarizingContextManager(summary_ratio=0.05)
     assert manager.summary_ratio == 0.1
 
     # Test upper bound
-    manager = SummarizingConversationManager(summary_ratio=0.95)
+    manager = SummarizingContextManager(summary_ratio=0.95)
     assert manager.summary_ratio == 0.8
 
 
 def test_reduce_context_raises_when_no_agent():
     """Test that reduce_context raises exception when agent has no messages."""
-    manager = SummarizingConversationManager()
+    manager = SummarizingContextManager()
 
     # Create a mock agent with no messages
     mock_agent = Mock()
@@ -142,7 +142,7 @@ def test_reduce_context_with_summarization(summarizing_manager, mock_agent):
 def test_reduce_context_too_few_messages_raises_exception(summarizing_manager, mock_agent):
     """Test that reduce_context raises exception when there are too few messages to summarize effectively."""
     # Create a scenario where calculation results in 0 messages to summarize
-    manager = SummarizingConversationManager(
+    manager = SummarizingContextManager(
         summary_ratio=0.1,  # Very small ratio
         preserve_recent_messages=5,  # High preservation
     )
@@ -160,7 +160,7 @@ def test_reduce_context_too_few_messages_raises_exception(summarizing_manager, m
 
 def test_reduce_context_insufficient_messages_for_summarization(mock_agent):
     """Test reduce_context when there aren't enough messages to summarize."""
-    manager = SummarizingConversationManager(
+    manager = SummarizingContextManager(
         summary_ratio=0.5,
         preserve_recent_messages=3,
     )
@@ -190,12 +190,12 @@ def test_reduce_context_raises_on_summarization_failure():
     ]
     failing_agent.messages = failing_agent_messages
 
-    manager = SummarizingConversationManager(
+    manager = SummarizingContextManager(
         summary_ratio=0.5,
         preserve_recent_messages=1,
     )
 
-    with patch("strands.agent.conversation_manager.summarizing_conversation_manager.logger") as mock_logger:
+    with patch("strands.context_manager.summarizing_context_manager.logger") as mock_logger:
         with pytest.raises(Exception, match="Agent failed"):
             manager.reduce_context(failing_agent)
 
@@ -241,7 +241,7 @@ def test_generate_summary_raises_on_model_failure():
     failing_agent.model = Mock()
     failing_agent.model.stream = Mock(side_effect=lambda *a, **kw: _mock_model_stream_error(Exception("Agent failed")))
 
-    manager = SummarizingConversationManager()
+    manager = SummarizingContextManager()
 
     messages: Messages = [
         {"role": "user", "content": [{"text": "Hello"}]},
@@ -307,7 +307,7 @@ def test_init_with_custom_parameters():
     """Test initialization with custom parameters."""
     mock_agent = create_mock_agent()
 
-    manager = SummarizingConversationManager(
+    manager = SummarizingContextManager(
         summary_ratio=0.4,
         preserve_recent_messages=5,
         summarization_agent=mock_agent,
@@ -324,7 +324,7 @@ def test_init_with_both_agent_and_prompt_raises_error():
     custom_prompt = "Custom summarization prompt"
 
     with pytest.raises(ValueError, match="Cannot provide both summarization_agent and summarization_system_prompt"):
-        SummarizingConversationManager(
+        SummarizingContextManager(
             summarization_agent=mock_agent,
             summarization_system_prompt=custom_prompt,
         )
@@ -333,7 +333,7 @@ def test_init_with_both_agent_and_prompt_raises_error():
 def test_uses_summarization_agent_when_provided():
     """Test that summarization_agent is used when provided."""
     summary_agent = create_mock_agent("Custom summary from dedicated agent")
-    manager = SummarizingConversationManager(summarization_agent=summary_agent)
+    manager = SummarizingContextManager(summarization_agent=summary_agent)
 
     messages: Messages = [
         {"role": "user", "content": [{"text": "Hello"}]},
@@ -353,7 +353,7 @@ def test_uses_summarization_agent_when_provided():
 
 def test_default_path_calls_model_directly():
     """Test that the default path (no summarization_agent) calls model.stream() directly."""
-    manager = SummarizingConversationManager()
+    manager = SummarizingContextManager()
 
     messages: Messages = [
         {"role": "user", "content": [{"text": "Hello"}]},
@@ -376,7 +376,7 @@ def test_default_path_calls_model_directly():
 
 def test_default_path_passes_correct_system_prompt():
     """Test that the default path passes the correct system prompt to model.stream()."""
-    manager = SummarizingConversationManager()
+    manager = SummarizingContextManager()
 
     messages: Messages = [
         {"role": "user", "content": [{"text": "Hello"}]},
@@ -394,7 +394,7 @@ def test_default_path_passes_correct_system_prompt():
 def test_default_path_uses_custom_system_prompt():
     """Test that custom system prompt is passed to model.stream() in default path."""
     custom_prompt = "Custom system prompt for summarization"
-    manager = SummarizingConversationManager(summarization_system_prompt=custom_prompt)
+    manager = SummarizingContextManager(summarization_system_prompt=custom_prompt)
     mock_agent = create_mock_agent()
 
     messages: Messages = [
@@ -411,7 +411,7 @@ def test_default_path_uses_custom_system_prompt():
 
 def test_default_path_does_not_modify_agent_state():
     """Test that the default path does not modify any agent state."""
-    manager = SummarizingConversationManager()
+    manager = SummarizingContextManager()
     mock_agent = create_mock_agent()
 
     # Set initial state
@@ -436,7 +436,7 @@ def test_default_path_does_not_modify_agent_state():
 
 def test_default_path_does_not_modify_agent_state_on_exception():
     """Test that agent state is untouched when model.stream() fails in default path."""
-    manager = SummarizingConversationManager()
+    manager = SummarizingContextManager()
 
     mock_agent = Mock()
     mock_agent.system_prompt = "Original prompt"
@@ -462,7 +462,7 @@ def test_default_path_does_not_modify_agent_state_on_exception():
 
 def test_default_path_passes_no_tool_specs():
     """Test that model.stream() is called with tool_specs=None in default path."""
-    manager = SummarizingConversationManager()
+    manager = SummarizingContextManager()
 
     messages: Messages = [{"role": "user", "content": [{"text": "test"}]}]
     agent = create_mock_agent()
@@ -477,7 +477,7 @@ def test_default_path_passes_no_tool_specs():
 def test_agent_path_state_restoration_with_summarization_agent():
     """Test that summarization_agent state is properly restored after summarization."""
     summary_agent = create_mock_agent("Summary from dedicated agent")
-    manager = SummarizingConversationManager(summarization_agent=summary_agent)
+    manager = SummarizingContextManager(summarization_agent=summary_agent)
 
     # Set initial state on the summarization agent
     original_system_prompt = "Agent original prompt"
@@ -509,7 +509,7 @@ def test_agent_path_state_restoration_on_exception():
     summary_agent.side_effect = Exception("Summarization failed")
     summary_agent.tool_names = []
 
-    manager = SummarizingConversationManager(summarization_agent=cast("Agent", summary_agent))
+    manager = SummarizingContextManager(summarization_agent=cast("Agent", summary_agent))
 
     messages: Messages = [
         {"role": "user", "content": [{"text": "Hello"}]},
@@ -525,7 +525,7 @@ def test_agent_path_state_restoration_on_exception():
 
 def test_reduce_context_tool_pair_adjustment_works_with_forward_search():
     """Test that tool pair adjustment works correctly with the forward-search logic."""
-    manager = SummarizingConversationManager(
+    manager = SummarizingContextManager(
         summary_ratio=0.5,
         preserve_recent_messages=1,
     )
@@ -655,7 +655,7 @@ def test_adjust_split_point_tool_result_no_forward_position(summarizing_manager)
 
 def test_reduce_context_adjustment_returns_zero():
     """Test that tool pair adjustment can return zero, triggering the check at line 122."""
-    manager = SummarizingConversationManager(
+    manager = SummarizingContextManager(
         summary_ratio=0.5,
         preserve_recent_messages=1,
     )
@@ -679,7 +679,7 @@ def test_reduce_context_adjustment_returns_zero():
         manager.reduce_context(mock_agent)
 
 
-def test_summarizing_conversation_manager_properly_records_removed_message_count():
+def test_summarizing_context_manager_properly_records_removed_message_count():
     mock_model = MockedModelProvider(
         [
             {"role": "assistant", "content": [{"text": "Summary"}]},
@@ -698,7 +698,7 @@ def test_summarizing_conversation_manager_properly_records_removed_message_count
         {"role": "assistant", "content": [{"text": "Response 4"}]},
     ]
     agent = Agent(model=mock_model, messages=simple_messages)
-    manager = SummarizingConversationManager(summary_ratio=0.5, preserve_recent_messages=1)
+    manager = SummarizingContextManager(summary_ratio=0.5, preserve_recent_messages=1)
 
     assert manager._summary_message is None
     assert manager.removed_message_count == 0
@@ -724,15 +724,15 @@ def test_summarizing_conversation_manager_properly_records_removed_message_count
     assert manager.removed_message_count == 5
 
 
-@patch("strands.agent.conversation_manager.summarizing_conversation_manager.ToolRegistry")
-def test_summarizing_conversation_manager_generate_summary_with_noop_tool_agent_path(
+@patch("strands.context_manager.summarizing_context_manager.ToolRegistry")
+def test_summarizing_context_manager_generate_summary_with_noop_tool_agent_path(
     mock_registry_cls,
 ):
     """Test noop tool registration when using the agent path (summarization_agent provided)."""
     mock_registry = mock_registry_cls.return_value
 
     summary_agent = create_mock_agent()
-    manager = SummarizingConversationManager(
+    manager = SummarizingContextManager(
         summary_ratio=0.5,
         preserve_recent_messages=2,
         summarization_agent=summary_agent,
@@ -748,8 +748,8 @@ def test_summarizing_conversation_manager_generate_summary_with_noop_tool_agent_
     mock_registry.register_tool.assert_called_once()
 
 
-@patch("strands.agent.conversation_manager.summarizing_conversation_manager.ToolRegistry")
-def test_summarizing_conversation_manager_generate_summary_with_tools_agent_path(
+@patch("strands.context_manager.summarizing_context_manager.ToolRegistry")
+def test_summarizing_context_manager_generate_summary_with_tools_agent_path(
     mock_registry_cls,
 ):
     """Test no noop tool registration when summarization_agent has tools."""
@@ -757,7 +757,7 @@ def test_summarizing_conversation_manager_generate_summary_with_tools_agent_path
 
     summary_agent = create_mock_agent()
     summary_agent.tool_names = ["test_tool"]
-    manager = SummarizingConversationManager(
+    manager = SummarizingContextManager(
         summary_ratio=0.5,
         preserve_recent_messages=2,
         summarization_agent=summary_agent,

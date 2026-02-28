@@ -5,7 +5,7 @@ import pytest
 
 import strands
 from strands import Agent
-from strands.agent import NullConversationManager
+from strands.agent import NullContextManager
 from strands.models.anthropic import AnthropicModel
 from strands.types.content import ContentBlock, Message
 from strands.types.exceptions import ContextWindowOverflowException
@@ -161,7 +161,7 @@ def test_structured_output_multi_modal_input(agent, yellow_img, yellow_color):
 def test_input_and_max_tokens_exceed_context_limit():
     """Test that triggers 'input length and max_tokens exceed context limit' error."""
 
-    # Note that this test is written specifically in a style that allows us to swap out conversation_manager and
+    # Note that this test is written specifically in a style that allows us to swap out context_manager and
     # verify behavior
 
     model = AnthropicModel(
@@ -177,8 +177,8 @@ def test_input_and_max_tokens_exceed_context_limit():
         Message(role="user", content=[ContentBlock(text=large_message)]),
     ]
 
-    # NullConversationManager will propagate ContextWindowOverflowException directly instead of handling it
-    agent = Agent(model=model, conversation_manager=NullConversationManager())
+    # NullContextManager will propagate ContextWindowOverflowException directly instead of handling it
+    agent = Agent(model=model, context_manager=NullContextManager())
 
     with pytest.raises(ContextWindowOverflowException):
         agent(messages)

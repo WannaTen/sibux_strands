@@ -16,8 +16,8 @@ from pydantic import BaseModel
 import strands
 from strands import Agent, ToolContext
 from strands.agent import AgentResult
-from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
-from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
+from strands.context_manager.null_context_manager import NullContextManager
+from strands.context_manager.sliding_window_context_manager import SlidingWindowContextManager
 from strands.agent.state import AgentState
 from strands.handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from strands.hooks import BeforeInvocationEvent, BeforeModelCallEvent, BeforeToolCallEvent
@@ -297,8 +297,8 @@ def test_agent__call__(
     tool,
     agenerator,
 ):
-    conversation_manager_spy = unittest.mock.Mock(wraps=agent.conversation_manager)
-    agent.conversation_manager = conversation_manager_spy
+    context_manager_spy = unittest.mock.Mock(wraps=agent.context_manager)
+    agent.context_manager = context_manager_spy
 
     mock_model.mock_stream.side_effect = [
         agenerator(
@@ -401,7 +401,7 @@ def test_agent__call__(
     )
 
     callback_handler.assert_called()
-    conversation_manager_spy.apply_management.assert_called_with(agent)
+    context_manager_spy.apply_management.assert_called_with(agent)
 
 
 def test_agent__call__passes_invocation_state(mock_model, agent, tool, mock_event_loop_cycle, agenerator):
@@ -464,8 +464,8 @@ def test_agent__call__passes_invocation_state(mock_model, agent, tool, mock_even
 
 
 def test_agent__call__retry_with_reduced_context(mock_model, agent, tool, agenerator):
-    conversation_manager_spy = unittest.mock.Mock(wraps=agent.conversation_manager)
-    agent.conversation_manager = conversation_manager_spy
+    context_manager_spy = unittest.mock.Mock(wraps=agent.context_manager)
+    agent.context_manager = context_manager_spy
 
     messages: Messages = [
         {"role": "user", "content": [{"text": "Hello!"}]},
@@ -520,14 +520,14 @@ def test_agent__call__retry_with_reduced_context(mock_model, agent, tool, agener
         invocation_state=unittest.mock.ANY,
     )
 
-    conversation_manager_spy.reduce_context.assert_called_once()
-    assert conversation_manager_spy.apply_management.call_count == 1
+    context_manager_spy.reduce_context.assert_called_once()
+    assert context_manager_spy.apply_management.call_count == 1
 
 
-def test_agent__call__always_sliding_window_conversation_manager_doesnt_infinite_loop(mock_model, agent, tool):
-    conversation_manager = SlidingWindowConversationManager(window_size=500, should_truncate_results=False)
-    conversation_manager_spy = unittest.mock.Mock(wraps=conversation_manager)
-    agent.conversation_manager = conversation_manager_spy
+def test_agent__call__always_sliding_window_context_manager_doesnt_infinite_loop(mock_model, agent, tool):
+    context_manager = SlidingWindowContextManager(window_size=500, should_truncate_results=False)
+    context_manager_spy = unittest.mock.Mock(wraps=context_manager)
+    agent.context_manager = context_manager_spy
 
     messages: Messages = [
         {"role": "user", "content": [{"text": "Hello!"}]},
@@ -546,12 +546,12 @@ def test_agent__call__always_sliding_window_conversation_manager_doesnt_infinite
     with pytest.raises(ContextWindowOverflowException):
         agent("Test!")
 
-    assert conversation_manager_spy.reduce_context.call_count > 0
-    assert conversation_manager_spy.apply_management.call_count == 1
+    assert context_manager_spy.reduce_context.call_count > 0
+    assert context_manager_spy.apply_management.call_count == 1
 
 
 def test_agent__call__null_conversation_window_manager__doesnt_infinite_loop(mock_model, agent, tool):
-    agent.conversation_manager = NullConversationManager()
+    agent.context_manager = NullContextManager()
 
     messages: Messages = [
         {"role": "user", "content": [{"text": "Hello!"}]},
@@ -596,8 +596,8 @@ def test_agent__call__tool_truncation_doesnt_infinite_loop(mock_model, agent):
 
 
 def test_agent__call__retry_with_overwritten_tool(mock_model, agent, tool, agenerator):
-    conversation_manager_spy = unittest.mock.Mock(wraps=agent.conversation_manager)
-    agent.conversation_manager = conversation_manager_spy
+    context_manager_spy = unittest.mock.Mock(wraps=agent.context_manager)
+    agent.context_manager = context_manager_spy
 
     messages: Messages = [
         {"role": "user", "content": [{"text": "Hello!"}]},
@@ -666,8 +666,8 @@ def test_agent__call__retry_with_overwritten_tool(mock_model, agent, tool, agene
         invocation_state=unittest.mock.ANY,
     )
 
-    assert conversation_manager_spy.reduce_context.call_count == 2
-    assert conversation_manager_spy.apply_management.call_count == 1
+    assert context_manager_spy.reduce_context.call_count == 2
+    assert context_manager_spy.apply_management.call_count == 1
 
 
 def test_agent__call__invalid_tool_use_event_loop_exception(mock_model, agent, tool, agenerator):
@@ -1489,7 +1489,7 @@ def test_agent_restored_from_session_management():
         SessionAgent(
             agent_id="default",
             state={"foo": "bar"},
-            conversation_manager_state=SlidingWindowConversationManager().get_state(),
+            context_manager_state=SlidingWindowContextManager().get_state(),
         ),
     )
     session_manager = RepositorySessionManager(session_id="123", session_repository=mock_session_repository)
@@ -1507,7 +1507,7 @@ def test_agent_restored_from_session_management_with_message():
         SessionAgent(
             agent_id="default",
             state={"foo": "bar"},
-            conversation_manager_state=SlidingWindowConversationManager().get_state(),
+            context_manager_state=SlidingWindowContextManager().get_state(),
         ),
     )
     mock_session_repository.create_message(
@@ -1604,15 +1604,15 @@ def test_agent_restored_from_session_management_with_correct_index():
     assert session_messages[3].message["content"][0]["text"] == "world!"
 
 
-def test_agent_with_session_and_conversation_manager():
+def test_agent_with_session_and_context_manager():
     mock_model = MockedModelProvider([{"role": "assistant", "content": [{"text": "hello!"}]}])
     mock_session_repository = MockedSessionRepository()
     session_manager = RepositorySessionManager(session_id="123", session_repository=mock_session_repository)
-    conversation_manager = SlidingWindowConversationManager(window_size=1)
+    context_manager = SlidingWindowContextManager(window_size=1)
     # Create an agent with a mocked model and session repository
     agent = Agent(
         session_manager=session_manager,
-        conversation_manager=conversation_manager,
+        context_manager=context_manager,
         model=mock_model,
     )
 
@@ -1625,21 +1625,21 @@ def test_agent_with_session_and_conversation_manager():
 
     # After invoking, assert that the messages were persisted
     assert len(mock_session_repository.list_messages("123", agent.agent_id)) == 2
-    # Assert conversation manager reduced the messages
+    # Assert context manager reduced the messages
     assert len(agent.messages) == 1
 
     # Initialize another agent using the same session
     session_manager_2 = RepositorySessionManager(session_id="123", session_repository=mock_session_repository)
-    conversation_manager_2 = SlidingWindowConversationManager(window_size=1)
+    context_manager_2 = SlidingWindowContextManager(window_size=1)
     agent_2 = Agent(
         session_manager=session_manager_2,
-        conversation_manager=conversation_manager_2,
+        context_manager=context_manager_2,
         model=mock_model,
     )
     # Assert that the second agent was initialized properly, and that the messages of both agents are equal
     assert agent.messages == agent_2.messages
-    # Asser the conversation manager was initialized properly
-    assert agent.conversation_manager.removed_message_count == agent_2.conversation_manager.removed_message_count
+    # Asser the context manager was initialized properly
+    assert agent.context_manager.removed_message_count == agent_2.context_manager.removed_message_count
 
 
 def test_agent_empty_invoke():

@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
+from strands.context_manager.null_context_manager import NullContextManager
 from strands.session.file_session_manager import FileSessionManager
 from strands.types.content import ContentBlock
 from strands.types.exceptions import SessionException
@@ -37,7 +37,7 @@ def sample_session():
 def sample_agent():
     """Create sample agent for testing."""
     return SessionAgent(
-        agent_id="test-agent", state={"key": "value"}, conversation_manager_state=NullConversationManager().get_state()
+        agent_id="test-agent", state={"key": "value"}, context_manager_state=NullContextManager().get_state()
     )
 
 

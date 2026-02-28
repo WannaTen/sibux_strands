@@ -1,13 +1,13 @@
-"""Integration tests for SummarizingConversationManager with actual AI models.
+"""Integration tests for SummarizingContextManager with actual AI models.
 
-These tests validate the end-to-end functionality of the SummarizingConversationManager
+These tests validate the end-to-end functionality of the SummarizingContextManager
 by testing with real AI models and API calls. They ensure that:
 
 1. **Real summarization** - Tests that actual model-generated summaries work correctly
 2. **Context overflow handling** - Validates real context overflow scenarios and recovery
 3. **Tool preservation** - Ensures ToolUse/ToolResult pairs survive real summarization
 4. **Message structure** - Verifies real model outputs maintain proper message structure
-5. **Agent integration** - Tests that conversation managers work with real Agent workflows
+5. **Agent integration** - Tests that context managers work with real Agent workflows
 
 These tests require API keys (`ANTHROPIC_API_KEY`) and make real API calls, so they should be run sparingly
 and may be skipped in CI environments without proper credentials.
@@ -19,7 +19,7 @@ import pytest
 
 import strands
 from strands import Agent
-from strands.agent.conversation_manager import SummarizingConversationManager
+from strands.context_manager import SummarizingContextManager
 from strands.models.anthropic import AnthropicModel
 from tests_integ.models import providers
 
@@ -76,7 +76,7 @@ def test_summarization_with_context_overflow(model):
     """Test that summarization works when context overflow occurs."""
     # Mock conversation data to avoid API calls
     greeting_response = """
-    Hello! I'm here to help you test your conversation manager. What specifically would you like 
+    Hello! I'm here to help you test your context manager. What specifically would you like 
     me to do as part of this test? I can respond to different types of prompts, maintain context 
     throughout our conversation, or demonstrate other capabilities of the AI assistant. Just let 
     me know what aspects you'd like to evaluate.
@@ -120,7 +120,7 @@ def test_summarization_with_context_overflow(model):
     """.strip()
 
     messages = [
-        {"role": "user", "content": [{"text": "Hello, I'm testing a conversation manager."}]},
+        {"role": "user", "content": [{"text": "Hello, I'm testing a context manager."}]},
         {"role": "assistant", "content": [{"text": greeting_response}]},
         {"role": "user", "content": [{"text": "Can you tell me about the history of computers?"}]},
         {"role": "assistant", "content": [{"text": computer_history_response}]},
@@ -131,7 +131,7 @@ def test_summarization_with_context_overflow(model):
     # Create agent with very aggressive summarization settings and pre-built conversation
     agent = Agent(
         model=model,
-        conversation_manager=SummarizingConversationManager(
+        context_manager=SummarizingContextManager(
             summary_ratio=0.5,  # Summarize 50% of messages
             preserve_recent_messages=2,  # Keep only 2 recent messages
         ),
@@ -147,7 +147,7 @@ def test_summarization_with_context_overflow(model):
     messages_before_summary = agent.messages[-2:].copy()
 
     # Now manually trigger context reduction to test summarization
-    agent.conversation_manager.reduce_context(agent)
+    agent.context_manager.reduce_context(agent)
 
     # Verify summarization occurred
     assert len(agent.messages) < initial_message_count
@@ -188,7 +188,7 @@ def test_tool_preservation_during_summarization(model, tools):
     agent = Agent(
         model=model,
         tools=tools,
-        conversation_manager=SummarizingConversationManager(
+        context_manager=SummarizingContextManager(
             summary_ratio=0.6,  # Aggressive summarization
             preserve_recent_messages=3,
         ),
@@ -264,7 +264,7 @@ def test_tool_preservation_during_summarization(model, tools):
     agent.messages.extend(tool_conversation_data)
 
     # Force summarization
-    agent.conversation_manager.reduce_context(agent)
+    agent.context_manager.reduce_context(agent)
 
     # Verify tool pairs are still balanced after summarization
     post_summary_tool_use_count = 0
@@ -308,7 +308,7 @@ def test_dedicated_summarization_agent(model, summarization_model):
     # Create main agent with dedicated summarization agent
     agent = Agent(
         model=model,
-        conversation_manager=SummarizingConversationManager(
+        context_manager=SummarizingContextManager(
             summary_ratio=0.5,
             preserve_recent_messages=2,
             summarization_agent=summarization_agent,
@@ -355,7 +355,7 @@ def test_dedicated_summarization_agent(model, summarization_model):
 
     # Force summarization
     original_length = len(agent.messages)
-    agent.conversation_manager.reduce_context(agent)
+    agent.context_manager.reduce_context(agent)
 
     # Verify summarization occurred
     assert len(agent.messages) < original_length
@@ -400,8 +400,8 @@ def test_summarization_with_tool_messages_and_no_tools():
         ],
     )
 
-    conversation_manager = SummarizingConversationManager(summary_ratio=1, preserve_recent_messages=2)
-    conversation_manager.reduce_context(agent)
+    context_manager = SummarizingContextManager(summary_ratio=1, preserve_recent_messages=2)
+    context_manager.reduce_context(agent)
 
     assert len(agent.tool_names) == 0
     assert len(agent.messages) == 3

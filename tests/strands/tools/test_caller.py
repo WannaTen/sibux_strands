@@ -31,8 +31,8 @@ def agent(model, test_tool):
 
 
 def test_agent_tool(randint, agent):
-    conversation_manager_spy = unittest.mock.Mock(wraps=agent.conversation_manager)
-    agent.conversation_manager = conversation_manager_spy
+    context_manager_spy = unittest.mock.Mock(wraps=agent.context_manager)
+    agent.context_manager = context_manager_spy
 
     randint.return_value = 1
 
@@ -48,7 +48,7 @@ def test_agent_tool(randint, agent):
     }
 
     assert tru_result == exp_result
-    conversation_manager_spy.apply_management.assert_called_with(agent)
+    context_manager_spy.apply_management.assert_called_with(agent)
 
 
 @pytest.mark.asyncio

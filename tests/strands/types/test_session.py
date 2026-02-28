@@ -2,7 +2,7 @@ import json
 import unittest.mock
 from uuid import uuid4
 
-from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
+from strands.context_manager.null_context_manager import NullContextManager
 from strands.agent.state import AgentState
 from strands.interrupt import _InterruptState
 from strands.types.session import (
@@ -25,7 +25,7 @@ def test_session_json_serializable():
 
 def test_agent_json_serializable():
     agent = SessionAgent(
-        agent_id=str(uuid4()), state={"foo": "bar"}, conversation_manager_state=NullConversationManager().get_state()
+        agent_id=str(uuid4()), state={"foo": "bar"}, context_manager_state=NullContextManager().get_state()
     )
     # json dumps will fail if its not json serializable
     agent_json_string = json.dumps(agent.to_dict())
@@ -99,14 +99,14 @@ def test_session_message_with_bytes():
 def test_session_agent_from_agent():
     agent = unittest.mock.Mock()
     agent.agent_id = "a1"
-    agent.conversation_manager = unittest.mock.Mock(get_state=lambda: {"test": "conversation"})
+    agent.context_manager = unittest.mock.Mock(get_state=lambda: {"test": "conversation"})
     agent.state = AgentState({"test": "state"})
     agent._interrupt_state = _InterruptState(interrupts={}, context={}, activated=False)
 
     tru_session_agent = SessionAgent.from_agent(agent)
     exp_session_agent = SessionAgent(
         agent_id="a1",
-        conversation_manager_state={"test": "conversation"},
+        context_manager_state={"test": "conversation"},
         state={"test": "state"},
         _internal_state={"interrupt_state": {"interrupts": {}, "context": {}, "activated": False}},
         created_at=unittest.mock.ANY,
@@ -119,7 +119,7 @@ def test_session_agent_initialize_internal_state():
     agent = unittest.mock.Mock()
     session_agent = SessionAgent(
         agent_id="a1",
-        conversation_manager_state={},
+        context_manager_state={},
         state={},
         _internal_state={"interrupt_state": {"interrupts": {}, "context": {"test": "init"}, "activated": False}},
     )

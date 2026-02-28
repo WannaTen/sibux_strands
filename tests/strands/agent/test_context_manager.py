@@ -4,8 +4,8 @@ import pytest
 
 from strands import tool
 from strands.agent.agent import Agent
-from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
-from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
+from strands.context_manager.null_context_manager import NullContextManager
+from strands.context_manager.sliding_window_context_manager import SlidingWindowContextManager
 from strands.hooks.events import BeforeModelCallEvent
 from strands.hooks.registry import HookProvider, HookRegistry
 from strands.types.exceptions import ContextWindowOverflowException
@@ -13,7 +13,7 @@ from tests.fixtures.mocked_model_provider import MockedModelProvider
 
 
 @pytest.fixture
-def conversation_manager(request):
+def context_manager(request):
     params = {
         "window_size": 2,
         "should_truncate_results": False,
@@ -21,11 +21,11 @@ def conversation_manager(request):
     if hasattr(request, "param"):
         params.update(request.param)
 
-    return SlidingWindowConversationManager(**params)
+    return SlidingWindowContextManager(**params)
 
 
 @pytest.mark.parametrize(
-    ("conversation_manager", "messages", "expected_messages"),
+    ("context_manager", "messages", "expected_messages"),
     [
         # 0 - Message count under max window size - Latest assistant
         (
@@ -152,17 +152,17 @@ def conversation_manager(request):
             ],
         ),
     ],
-    indirect=["conversation_manager"],
+    indirect=["context_manager"],
 )
-def test_apply_management(conversation_manager, messages, expected_messages):
+def test_apply_management(context_manager, messages, expected_messages):
     test_agent = Agent(messages=messages)
-    conversation_manager.apply_management(test_agent)
+    context_manager.apply_management(test_agent)
 
     assert messages == expected_messages
 
 
-def test_sliding_window_conversation_manager_with_untrimmable_history_raises_context_window_overflow_exception():
-    manager = SlidingWindowConversationManager(1, False)
+def test_sliding_window_context_manager_with_untrimmable_history_raises_context_window_overflow_exception():
+    manager = SlidingWindowContextManager(1, False)
     messages = [
         {"role": "assistant", "content": [{"toolUse": {"toolUseId": "456", "name": "tool1", "input": {}}}]},
         {"role": "user", "content": [{"toolResult": {"toolUseId": "789", "content": [], "status": "success"}}]},
@@ -176,8 +176,8 @@ def test_sliding_window_conversation_manager_with_untrimmable_history_raises_con
     assert messages == original_messages
 
 
-def test_sliding_window_conversation_manager_with_tool_results_truncated():
-    manager = SlidingWindowConversationManager(1)
+def test_sliding_window_context_manager_with_tool_results_truncated():
+    manager = SlidingWindowContextManager(1)
     messages = [
         {"role": "assistant", "content": [{"toolUse": {"toolUseId": "456", "name": "tool1", "input": {}}}]},
         {
@@ -210,9 +210,9 @@ def test_sliding_window_conversation_manager_with_tool_results_truncated():
     assert messages == expected_messages
 
 
-def test_null_conversation_manager_reduce_context_raises_context_window_overflow_exception():
-    """Test that NullConversationManager doesn't modify messages."""
-    manager = NullConversationManager()
+def test_null_context_manager_reduce_context_raises_context_window_overflow_exception():
+    """Test that NullContextManager doesn't modify messages."""
+    manager = NullContextManager()
     messages = [
         {"role": "user", "content": [{"text": "Hello"}]},
         {"role": "assistant", "content": [{"text": "Hi there"}]},
@@ -228,9 +228,9 @@ def test_null_conversation_manager_reduce_context_raises_context_window_overflow
     assert messages == original_messages
 
 
-def test_null_conversation_manager_reduce_context_with_exception_raises_same_exception():
-    """Test that NullConversationManager doesn't modify messages."""
-    manager = NullConversationManager()
+def test_null_context_manager_reduce_context_with_exception_raises_same_exception():
+    """Test that NullContextManager doesn't modify messages."""
+    manager = NullContextManager()
     messages = [
         {"role": "user", "content": [{"text": "Hello"}]},
         {"role": "assistant", "content": [{"text": "Hi there"}]},
@@ -247,8 +247,8 @@ def test_null_conversation_manager_reduce_context_with_exception_raises_same_exc
 
 
 def test_null_conversation_does_not_restore_with_incorrect_state():
-    """Test that NullConversationManager doesn't modify messages."""
-    manager = NullConversationManager()
+    """Test that NullContextManager doesn't modify messages."""
+    manager = NullContextManager()
 
     with pytest.raises(ValueError):
         manager.restore_from_session({})
@@ -262,22 +262,22 @@ def test_null_conversation_does_not_restore_with_incorrect_state():
 def test_per_turn_parameter_validation():
     """Test per_turn parameter validation."""
     # Valid values
-    assert SlidingWindowConversationManager(per_turn=False).per_turn is False
-    assert SlidingWindowConversationManager(per_turn=True).per_turn is True
-    assert SlidingWindowConversationManager(per_turn=3).per_turn == 3
+    assert SlidingWindowContextManager(per_turn=False).per_turn is False
+    assert SlidingWindowContextManager(per_turn=True).per_turn is True
+    assert SlidingWindowContextManager(per_turn=3).per_turn == 3
 
 
-def test_conversation_manager_is_hook_provider():
-    """Test that ConversationManager implements HookProvider protocol."""
-    manager = NullConversationManager()
+def test_context_manager_is_hook_provider():
+    """Test that ContextManager implements HookProvider protocol."""
+    manager = NullContextManager()
     assert isinstance(manager, HookProvider)
 
 
 def test_derived_class_does_not_need_to_implement_register_hooks():
     """Test that derived classes don't need to override register_hooks for backwards compatibility."""
-    from strands.agent.conversation_manager.conversation_manager import ConversationManager
+    from strands.context_manager.context_manager import ContextManager
 
-    class MinimalConversationManager(ConversationManager):
+    class MinimalContextManager(ContextManager):
         """A minimal implementation that only implements abstract methods."""
 
         def apply_management(self, agent, **kwargs):
@@ -287,7 +287,7 @@ def test_derived_class_does_not_need_to_implement_register_hooks():
             pass
 
     # Should be able to instantiate without implementing register_hooks
-    manager = MinimalConversationManager()
+    manager = MinimalContextManager()
     registry = HookRegistry()
 
     # Should work without error
@@ -296,8 +296,8 @@ def test_derived_class_does_not_need_to_implement_register_hooks():
 
 
 def test_per_turn_hooks_registration():
-    """Test that hooks are registered when conversation_manager implements HookProvider."""
-    manager = SlidingWindowConversationManager(per_turn=True)
+    """Test that hooks are registered when context_manager implements HookProvider."""
+    manager = SlidingWindowContextManager(per_turn=True)
     assert isinstance(manager, HookProvider)
 
     registry = HookRegistry()
@@ -307,10 +307,10 @@ def test_per_turn_hooks_registration():
 
 def test_per_turn_false_no_management_during_loop():
     """Test that per_turn=False only manages in finally block."""
-    manager = SlidingWindowConversationManager(per_turn=False, window_size=100)
+    manager = SlidingWindowContextManager(per_turn=False, window_size=100)
     responses = [{"role": "assistant", "content": [{"text": "Response"}]}] * 3
     model = MockedModelProvider(responses)
-    agent = Agent(model=model, conversation_manager=manager)
+    agent = Agent(model=model, context_manager=manager)
 
     with patch.object(manager, "apply_management", wraps=manager.apply_management) as mock:
         agent("Test")
@@ -320,10 +320,10 @@ def test_per_turn_false_no_management_during_loop():
 
 def test_per_turn_true_manages_each_model_call():
     """Test that per_turn=True applies management before each model call."""
-    manager = SlidingWindowConversationManager(per_turn=True, window_size=100)
+    manager = SlidingWindowContextManager(per_turn=True, window_size=100)
     responses = [{"role": "assistant", "content": [{"text": "Response"}]}] * 3
     model = MockedModelProvider(responses)
-    agent = Agent(model=model, conversation_manager=manager)
+    agent = Agent(model=model, context_manager=manager)
 
     with patch.object(manager, "apply_management", wraps=manager.apply_management) as mock:
         agent("Test")
@@ -334,7 +334,7 @@ def test_per_turn_true_manages_each_model_call():
 
 def test_per_turn_integer_manages_every_n_calls():
     """Test that per_turn=N applies management every N model calls."""
-    manager = SlidingWindowConversationManager(per_turn=2, window_size=100)
+    manager = SlidingWindowContextManager(per_turn=2, window_size=100)
     # Create responses that trigger multiple model calls
     responses = [
         {"role": "assistant", "content": [{"toolUse": {"toolUseId": f"{i}", "name": "test", "input": {}}}]}
@@ -346,7 +346,7 @@ def test_per_turn_integer_manages_every_n_calls():
     def test_tool(query: str = "") -> str:
         return "result"
 
-    agent = Agent(model=model, conversation_manager=manager, tools=[test_tool])
+    agent = Agent(model=model, context_manager=manager, tools=[test_tool])
 
     with patch.object(manager, "apply_management", wraps=manager.apply_management) as mock:
         agent("Test")
@@ -356,7 +356,7 @@ def test_per_turn_integer_manages_every_n_calls():
 
 def test_per_turn_dynamic_change():
     """Test that per_turn can be changed dynamically."""
-    manager = SlidingWindowConversationManager(per_turn=False)
+    manager = SlidingWindowContextManager(per_turn=False)
     registry = HookRegistry()
     manager.register_hooks(registry)
 
@@ -378,10 +378,10 @@ def test_per_turn_dynamic_change():
 
 def test_per_turn_reduces_message_count():
     """Test that per_turn actually reduces message count during execution."""
-    manager = SlidingWindowConversationManager(per_turn=1, window_size=4)
+    manager = SlidingWindowContextManager(per_turn=1, window_size=4)
     responses = [{"role": "assistant", "content": [{"text": f"Response {i}"}]} for i in range(10)]
     model = MockedModelProvider(responses)
-    agent = Agent(model=model, conversation_manager=manager)
+    agent = Agent(model=model, context_manager=manager)
 
     message_counts = []
     original_apply = manager.apply_management
@@ -399,24 +399,24 @@ def test_per_turn_reduces_message_count():
 
 def test_per_turn_state_persistence():
     """Test that model_call_count is persisted in state."""
-    manager = SlidingWindowConversationManager(per_turn=3)
+    manager = SlidingWindowContextManager(per_turn=3)
     manager._model_call_count = 7
 
     state = manager.get_state()
     assert state["model_call_count"] == 7
 
-    new_manager = SlidingWindowConversationManager(per_turn=3)
+    new_manager = SlidingWindowContextManager(per_turn=3)
     new_manager.restore_from_session(state)
     assert new_manager._model_call_count == 7
 
 
 def test_per_turn_backward_compatibility():
     """Test that existing code without per_turn still works."""
-    manager = SlidingWindowConversationManager(window_size=40)
+    manager = SlidingWindowContextManager(window_size=40)
     assert manager.per_turn is False
 
     responses = [{"role": "assistant", "content": [{"text": "Hello"}]}]
     model = MockedModelProvider(responses)
-    agent = Agent(model=model, conversation_manager=manager)
+    agent = Agent(model=model, context_manager=manager)
     result = agent("Hello")
     assert result is not None
