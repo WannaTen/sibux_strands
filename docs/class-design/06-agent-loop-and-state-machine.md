@@ -37,7 +37,7 @@ AgentLoopInit:
   toolRegistry: ToolRegistry (required)
   toolExecutor: ToolExecutor (required)
   runtime: Runtime (optional)
-  messageAssemblerFactory: MessageAssemblerFactory (optional)
+  deltaAggregation: DeltaAggregation (optional)
   observer: ObserverHub (optional)
   idGenerator: IdGenerator (optional)
 ```
@@ -57,7 +57,7 @@ AgentLoop fields:
   toolRegistry: ToolRegistry
   toolExecutor: ToolExecutor
   runtime: Runtime (optional)
-  messageAssemblerFactory: MessageAssemblerFactory
+  deltaAggregation: DeltaAggregation
   observer: ObserverHub
   idGenerator: IdGenerator
 ```

@@ -135,7 +135,7 @@ AgentDeps:
   runtime: Runtime (optional)
 
   toolRegistry: ToolRegistry (optional)
-  messageAssemblerFactory: MessageAssemblerFactory (optional)
+  deltaAggregation: DeltaAggregation (optional)
   observer: ObserverHub (optional)
   idGenerator: IdGenerator (optional)
 ```
@@ -144,7 +144,7 @@ AgentDeps:
 
 - `runtime` -> `LocalRuntime`（仅当有工具声明需要 runtime）
 - `toolRegistry` -> `DefaultToolRegistry`
-- `messageAssemblerFactory` -> `DefaultMessageAssemblerFactory`
+- `deltaAggregation` -> `DefaultDeltaAggregation`
 - `observer` -> `NoopObserver`
 - `idGenerator` -> `UuidGenerator`
 
