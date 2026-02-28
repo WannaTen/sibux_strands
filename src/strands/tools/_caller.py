@@ -119,7 +119,7 @@ class _ToolCaller:
 
                 # TODO: https://github.com/strands-agents/sdk-python/issues/1311
                 if isinstance(self._agent, Agent):
-                    self._agent.conversation_manager.apply_management(self._agent)
+                    self._agent.context_manager.apply_management(self._agent)
 
                 return tool_result
 

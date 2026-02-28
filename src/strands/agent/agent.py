@@ -60,9 +60,9 @@ from ..types.exceptions import ConcurrencyException, ContextWindowOverflowExcept
 from ..types.traces import AttributeValue
 from .agent_result import AgentResult
 from .base import AgentBase
-from .conversation_manager import (
-    ConversationManager,
-    SlidingWindowConversationManager,
+from ..context_manager import (
+    ContextManager,
+    SlidingWindowContextManager,
 )
 from .state import AgentState
 
@@ -112,7 +112,7 @@ class Agent(AgentBase):
         system_prompt: str | list[SystemContentBlock] | None = None,
         structured_output_model: type[BaseModel] | None = None,
         callback_handler: Callable[..., Any] | _DefaultCallbackHandlerSentinel | None = _DEFAULT_CALLBACK_HANDLER,
-        conversation_manager: ConversationManager | None = None,
+        context_manager: ContextManager | None = None,
         record_direct_tool_call: bool = True,
         load_tools_from_directory: bool = False,
         trace_attributes: Mapping[str, AttributeValue] | None = None,
@@ -156,8 +156,8 @@ class Agent(AgentBase):
             callback_handler: Callback for processing events as they happen during agent execution.
                 If not provided (using the default), a new PrintingCallbackHandler instance is created.
                 If explicitly set to None, null_callback_handler is used.
-            conversation_manager: Manager for conversation history and context window.
-                Defaults to strands.agent.conversation_manager.SlidingWindowConversationManager if None.
+            context_manager: Manager for conversation history and context window.
+                Defaults to strands.agent.context_manager.SlidingWindowContextManager if None.
             record_direct_tool_call: Whether to record direct tool calls in message history.
                 Defaults to True.
             load_tools_from_directory: Whether to load and automatically reload tools in the `./tools/` directory.
@@ -214,7 +214,7 @@ class Agent(AgentBase):
         else:
             self.callback_handler = callback_handler
 
-        self.conversation_manager = conversation_manager if conversation_manager else SlidingWindowConversationManager()
+        self.context_manager = context_manager if context_manager else SlidingWindowContextManager()
 
         # Process trace attributes to ensure they're of compatible types
         self.trace_attributes: dict[str, AttributeValue] = {}
@@ -295,8 +295,8 @@ class Agent(AgentBase):
         if self._session_manager:
             self.hooks.add_hook(self._session_manager)
 
-        # Allow conversation_managers to subscribe to hooks
-        self.hooks.add_hook(self.conversation_manager)
+        # Allow context_managers to subscribe to hooks
+        self.hooks.add_hook(self.context_manager)
 
         # Register retry strategy as a hook
         self.hooks.add_hook(self._retry_strategy)
@@ -691,7 +691,7 @@ class Agent(AgentBase):
                 agent_result = AgentResult(*event["stop"])
 
         finally:
-            self.conversation_manager.apply_management(self)
+            self.context_manager.apply_management(self)
             await self.hooks.invoke_callbacks_async(
                 AfterInvocationEvent(agent=self, invocation_state=invocation_state, result=agent_result)
             )
@@ -724,9 +724,9 @@ class Agent(AgentBase):
 
         except ContextWindowOverflowException as e:
             # Try reducing the context size and retrying
-            self.conversation_manager.reduce_context(self, e=e)
+            self.context_manager.reduce_context(self, e=e)
 
-            # Sync agent after reduce_context to keep conversation_manager_state up to date in the session
+            # Sync agent after reduce_context to keep context_manager_state up to date in the session
             if self._session_manager:
                 self._session_manager.sync_agent(self)
 

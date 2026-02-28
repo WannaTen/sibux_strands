@@ -141,18 +141,18 @@ class RepositorySessionManager(SessionManager):
 
             session_agent.initialize_internal_state(agent)
 
-            # Restore the conversation manager to its previous state, and get the optional prepend messages
-            prepend_messages = agent.conversation_manager.restore_from_session(session_agent.conversation_manager_state)
+            # Restore the context manager to its previous state, and get the optional prepend messages
+            prepend_messages = agent.context_manager.restore_from_session(session_agent.context_manager_state)
 
             if prepend_messages is None:
                 prepend_messages = []
 
             # List the messages currently in the session, using an offset of the messages previously removed
-            # by the conversation manager.
+            # by the context manager.
             session_messages = self.session_repository.list_messages(
                 session_id=self.session_id,
                 agent_id=agent.agent_id,
-                offset=agent.conversation_manager.removed_message_count,
+                offset=agent.context_manager.removed_message_count,
             )
             if len(session_messages) > 0:
                 self._latest_agent_message[agent.agent_id] = session_messages[-1]
@@ -176,7 +176,7 @@ class RepositorySessionManager(SessionManager):
         Args:
             messages: The list of messages to fix
             agent_id: The agent ID for fetching previous messages
-            removed_message_count: Number of messages removed by the conversation manager
+            removed_message_count: Number of messages removed by the context manager
 
         Returns:
             Fixed list of messages with proper tool use/result pairs

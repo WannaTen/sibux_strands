@@ -109,14 +109,14 @@ class SessionAgent:
     Attributes:
         agent_id: Unique id for the agent.
         state: User managed state.
-        conversation_manager_state: State for conversation management.
+        context_manager_state: State for context management.
         created_at: Created at time.
         updated_at: Updated at time.
     """
 
     agent_id: str
     state: dict[str, Any]
-    conversation_manager_state: dict[str, Any]
+    context_manager_state: dict[str, Any]
     _internal_state: dict[str, Any] = field(default_factory=dict)  # Strands managed state
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -128,7 +128,7 @@ class SessionAgent:
             raise ValueError("agent_id needs to be defined.")
         return cls(
             agent_id=agent.agent_id,
-            conversation_manager_state=agent.conversation_manager.get_state(),
+            context_manager_state=agent.context_manager.get_state(),
             state=agent.state.get(),
         )
 
