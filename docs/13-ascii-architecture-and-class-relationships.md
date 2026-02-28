@@ -42,12 +42,11 @@
            |                             | stream
            |                             v
            |                 +------------------------+
-           +---------------> | MessageAssembler       |
-                             | consume(delta)         |
-                             | buildFinalMessage()    |
+           +---------------> | Delta Aggregation      |
+                             | (inline in AgentLoop)  |
                              +-----------+------------+
                                          |
-                                         | extract tool_call from assistant message
+                                         | build final message
                                          v
                              +------------------------+
                              | EnvironmentManager     |
@@ -84,7 +83,7 @@
                                   *-- SessionStore
                                   o-- ContextManager
                                   o-- Model
-                                  o-- MessageAssembler
+
                                   o-- EnvironmentManager
                                   o-- ObserverHub
 ```
@@ -98,7 +97,7 @@
 +--------------------+     +----------------------+
 ..> ContextManager
 ..> Model
-..> MessageAssembler
+
 ..> EnvironmentManager
 ..> SessionStore
 ```
@@ -160,7 +159,7 @@ Runtime     <|-- RemoteRuntime
 | + appendMessage(msg: Message): void                                            |
 | + loadContext(): Message[]                                                     |
 +--------------------------------------------------------------------------------+
-      o-- ContextManager   o-- Model   o-- MessageAssembler   o-- EnvironmentManager
+      o-- ContextManager   o-- Model   o-- EnvironmentManager
       *-- AgentLoop        *-- SessionStore
 
 +----------------------------------+        +-------------------------------------+
@@ -171,20 +170,11 @@ Runtime     <|-- RemoteRuntime
 | + runTurn(session): TurnResult   |        +-------------------------------------+
 | + handleToolCalls(msg): void     |                         ..> MessageDelta
 +----------------------------------+
-            ..> MessageAssembler
+
             ..> SessionStore
             ..> EnvironmentManager
 
-+----------------------------------+
-| MessageAssembler                 |
-+----------------------------------+
-| - buffer: MutableMessage         |
-| - deltas: MessageDelta[]         |
-+----------------------------------+
-| + consume(delta): void           |
-| + snapshot(): Message            |
-| + buildFinalMessage(): Message   |
-+----------------------------------+
+
 ```
 
 ---
@@ -194,5 +184,5 @@ Runtime     <|-- RemoteRuntime
 1. `AgentSession` 是运行期聚合根，负责持有会话状态与消息。
 2. `AgentLoop` 只做编排，不绑定具体模型厂商与 runtime 实现。
 3. `Model` 负责 provider -> `MessageDelta` 的差异抹平。
-4. `MessageAssembler` 负责增量聚合与最终 message 提交边界。
+4. Delta 聚合逻辑在 AgentLoop 内实现，负责增量聚合与最终 message 提交边界。
 5. `EnvironmentManager` 负责工具执行并生成统一 `tool_result` message。

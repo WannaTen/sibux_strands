@@ -60,7 +60,7 @@ MessageDelta {
 ## 关键策略（参考 strands / pi-mono 思路）
 
 - 流式差异抹平发生在 `Model` 内部，不上抛 provider 私有结构
-- 框架核心消费统一 `MessageDelta`，由 `MessageAssembler` 组装最终 `Message`
+- 框架核心消费统一 `MessageDelta`，在 AgentLoop 内聚合最终 `Message`
 - 上层业务（loop/context/session/hitl）只依赖 `Message` 与 `MessageDelta`
 - `providerRaw` 只用于调试与审计，不参与业务逻辑分支
 

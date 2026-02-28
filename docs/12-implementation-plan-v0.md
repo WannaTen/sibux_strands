@@ -30,7 +30,7 @@
 
 - 单 provider model 实现
 - 统一 `MessageDelta` 流
-- `MessageAssembler`
+- Delta aggregation
 - loop v0（无 HITL）
 
 验收：

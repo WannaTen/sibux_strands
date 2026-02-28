@@ -24,7 +24,7 @@ while true:
   context = ctx.modelMessages
   toolSpecs = ctx.modelToolSpecs
 
-  assembler = MessageAssembler()  # or a simple delta aggregator in AgentLoop
+  # Delta aggregation happens inline in AgentLoop
   delta_stream = model.stream(
     messages=context,
     toolSpecs=toolSpecs,
@@ -34,10 +34,10 @@ while true:
   for delta in delta_stream:
     assert delta.runId == runId
     dedupe_by(runId, model_call_index, delta.seq)
-    assembler.consume(delta)
+    consume(delta)
     observer.on_model_delta(delta)  # 可选: 实时输出到 UI/日志
 
-  assistant_message = assembler.buildFinalMessage()
+  assistant_message = buildFinalMessage()
   append_session(assistant_message)
 
   if overflowHint or model_token_overflow:
@@ -72,7 +72,7 @@ finish_run()
 ## 流式处理约束
 
 - 模型层输出必须先归一化为 `MessageDelta`
-- `MessageAssembler` 在内存中累积增量，并按需提供 `snapshot` 给前端
+- Delta 在内存中累积增量，并按需提供 `snapshot` 给前端
 - 只有在收到 `done`（或可恢复 `error`）后才提交最终 assistant message
 - 工具调用仅从最终 assistant message 中提取，避免上层感知 provider 原始流格式
 
