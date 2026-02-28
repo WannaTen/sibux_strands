@@ -47,14 +47,7 @@
 - `providerRaw`（可选，调试用）
 - `timestamp`
 
-### MessageAssembler
-
-- `consume(delta: MessageDelta)`
-- `snapshot()`（用于实时 UI 展示）
-- `buildFinalMessage(): Message`
-- `reset()`
-
-说明：`MessageAssembler` 是小型聚合器，可直接在 AgentLoop 内实现为函数/模块，不要求单独暴露为公共类。
+说明：Delta 聚合逻辑可直接在 AgentLoop 内实现为函数/模块，不要求单独暴露为公共类。
 
 ### Model
 
@@ -132,10 +125,7 @@ classDiagram
       +payload
       +timestamp
     }
-    class MessageAssembler {
-      +snapshot()
-      +buildFinalMessage()
-    }
+
     class ToolCall {
       +toolCallId
       +toolName
@@ -150,8 +140,8 @@ classDiagram
     Session *-- Message
     Message "1" o-- "0..*" ToolCall
     Message "1" o-- "0..*" ToolResult
-    MessageAssembler ..> MessageDelta : consume
-    MessageAssembler ..> Message : build
+    AgentLoop ..> MessageDelta : consume
+    AgentLoop ..> Message : build
 ```
 
 ## 不变量

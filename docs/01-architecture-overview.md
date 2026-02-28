@@ -31,7 +31,7 @@
   - Agent
   - AgentLoop
   - StateMachine
-  - MessageAssembler
+  - StateMachine
 - Domain Layer
   - ContextManager
   - SessionStore
@@ -52,14 +52,14 @@ flowchart TB
 
     LOOP --> CTX[ContextManager]
     LOOP --> MODEL[Model]
-    LOOP --> ASM[MessageAssembler]
+    LOOP --> ASM[Delta Aggregation]
     LOOP --> ENV[Environment]
     LOOP --> SESS[SessionStore]
     LOOP --> OBS[Observer]
 
     MODEL --> DELTA[MessageDelta Stream]
-    DELTA --> ASM
-    ASM --> SESS
+    DELTA --> LOOP
+    LOOP --> SESS
 
     ENV --> RT[Runtime]
     ENV --> TOOLS[ToolRegistry/ToolExecutor]
