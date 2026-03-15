@@ -1,4 +1,4 @@
-"""Summarizing conversation history management with configurable options."""
+"""Summarizing context history management with configurable options."""
 
 import logging
 from typing import TYPE_CHECKING, Any, Optional, cast
@@ -93,10 +93,10 @@ class SummarizingContextManager(ContextManager):
 
     @override
     def restore_from_session(self, state: dict[str, Any]) -> list[Message] | None:
-        """Restores the Summarizing Context manager from its previous state in a session.
+        """Restore the SummarizingContextManager from its previous state in a session.
 
         Args:
-            state: The previous state of the Summarizing Context Manager.
+            state: The previous state of the SummarizingContextManager.
 
         Returns:
             Optionally returns the previous conversation summary if it exists.
@@ -106,7 +106,7 @@ class SummarizingContextManager(ContextManager):
         return [self._summary_message] if self._summary_message else None
 
     def get_state(self) -> dict[str, Any]:
-        """Returns a dictionary representation of the state for the Summarizing Context Manager."""
+        """Return a dictionary representation of the state for the SummarizingContextManager."""
         return {"summary_message": self._summary_message, **super().get_state()}
 
     def apply_management(self, agent: "Agent", **kwargs: Any) -> None:

@@ -68,7 +68,7 @@ def test_agent_with_file_session_and_context_manager(temp_dir):
         )
         agent("Hello!")
         assert len(session_manager.list_messages(test_session_id, agent.agent_id)) == 2
-        # Context Manager reduced messages
+        # Context manager reduced messages
         assert len(agent.messages) == 1
 
         # After agent is persisted and run, restore the agent and run it again

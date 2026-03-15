@@ -192,7 +192,7 @@ def test_context_window_overflow_integration():
         "This text is longer than context window, but short enough to not get caught in token rate limit. " * 6800
     )
 
-    # This should raise ContextWindowOverflowException which gets handled by conversation manager
+    # This should raise ContextWindowOverflowException which gets handled by context manager
     # The agent should attempt to reduce context and retry
     with pytest.raises(ContextWindowOverflowException):
         agent(long_text)

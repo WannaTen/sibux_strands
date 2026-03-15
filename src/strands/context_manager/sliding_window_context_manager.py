@@ -1,4 +1,4 @@
-"""Sliding window conversation history management."""
+"""Sliding window context history management."""
 
 import logging
 from typing import TYPE_CHECKING, Any

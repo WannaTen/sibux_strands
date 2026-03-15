@@ -5,7 +5,7 @@ import pytest
 
 import strands
 from strands import Agent
-from strands.agent import NullContextManager
+from strands.context_manager import NullContextManager
 from strands.models.anthropic import AnthropicModel
 from strands.types.content import ContentBlock, Message
 from strands.types.exceptions import ContextWindowOverflowException

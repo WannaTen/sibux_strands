@@ -42,7 +42,7 @@ class SessionManager(HookProvider, ABC):
         # Sync the agent into the session for each message in case the agent state was updated
         registry.add_callback(MessageAddedEvent, lambda event: self.sync_agent(event.agent))
 
-        # After an agent was invoked, sync it with the session to capture any conversation manager state updates
+        # After an agent was invoked, sync it with the session to capture any context manager state updates
         registry.add_callback(AfterInvocationEvent, lambda event: self.sync_agent(event.agent))
 
         registry.add_callback(MultiAgentInitializedEvent, lambda event: self.initialize_multi_agent(event.source))

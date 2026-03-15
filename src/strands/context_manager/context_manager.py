@@ -1,4 +1,4 @@
-"""Abstract interface for conversation history management."""
+"""Abstract interface for agent context management."""
 
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 
 class ContextManager(ABC, HookProvider):
-    """Abstract base class for managing conversation history.
+    """Abstract base class for managing agent context.
 
     This class provides an interface for implementing context management strategies to control the size of message
     arrays/conversation histories, helping to:
@@ -63,7 +63,7 @@ class ContextManager(ABC, HookProvider):
         pass
 
     def restore_from_session(self, state: dict[str, Any]) -> list[Message] | None:
-        """Restore the Context Manager's state from a session.
+        """Restore the ContextManager's state from a session.
 
         Args:
             state: Previous state of the context manager
@@ -76,7 +76,7 @@ class ContextManager(ABC, HookProvider):
         return None
 
     def get_state(self) -> dict[str, Any]:
-        """Get the current state of a Context Manager as a Json serializable dictionary."""
+        """Get the current state of a ContextManager as a Json serializable dictionary."""
         return {
             "__name__": self.__class__.__name__,
             "removed_message_count": self.removed_message_count,

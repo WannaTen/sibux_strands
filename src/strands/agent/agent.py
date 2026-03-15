@@ -58,6 +58,10 @@ from ..types.agent import AgentInput, ConcurrentInvocationMode
 from ..types.content import ContentBlock, Message, Messages, SystemContentBlock
 from ..types.exceptions import ConcurrencyException, ContextWindowOverflowException
 from ..types.traces import AttributeValue
+from ..context_manager import (
+    ContextManager,
+    SlidingWindowContextManager,
+)
 from .agent_result import AgentResult
 from .base import AgentBase
 from ..context_manager import (
@@ -157,7 +161,7 @@ class Agent(AgentBase):
                 If not provided (using the default), a new PrintingCallbackHandler instance is created.
                 If explicitly set to None, null_callback_handler is used.
             context_manager: Manager for conversation history and context window.
-                Defaults to strands.agent.context_manager.SlidingWindowContextManager if None.
+                Defaults to strands.context_manager.SlidingWindowContextManager if None.
             record_direct_tool_call: Whether to record direct tool calls in message history.
                 Defaults to True.
             load_tools_from_directory: Whether to load and automatically reload tools in the `./tools/` directory.

@@ -28,11 +28,10 @@ strands-agents/
 │   │   ├── base.py                       # AgentBase protocol (agent interface)
 │   │   ├── a2a_agent.py                  # A2AAgent client for remote A2A agents
 │   │   ├── state.py                      # Agent state management
-│   │   └── state.py                      # Agent state management
 │   │
-│   ├── context_manager/                    # Message history strategies
-│   │   ├── context_manager.py             # Base context manager
-│   │   ├── null_context_manager.py        # No-op manager
+│   ├── context_manager/                  # Context window management strategies
+│   │   ├── context_manager.py            # Base context manager
+│   │   ├── null_context_manager.py       # No-op manager
 │   │   ├── sliding_window_context_manager.py  # Window-based
 │   │   └── summarizing_context_manager.py     # Summarization-based
 │   │

@@ -1,4 +1,4 @@
-"""This package provides classes for managing conversation history during agent execution.
+"""This package provides classes for managing agent context during execution.
 
 It includes:
 
