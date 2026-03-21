@@ -15,3 +15,8 @@ repl_state
 uv.lock
 .audio_cache
 CLAUDE.md
+opencode/
+oh-my-opencode/
+docs/arch/
+.sibux/
+.factory/

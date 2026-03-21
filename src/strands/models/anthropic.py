@@ -76,6 +76,7 @@ class AnthropicModel(Model):
         logger.debug("config=<%s> | initializing", self.config)
 
         client_args = client_args or {}
+        client_args.setdefault("timeout", 30.0)
         self.client = anthropic.AsyncAnthropic(**client_args)
 
     @override
@@ -407,10 +408,10 @@ class AnthropicModel(Model):
                 logger.debug("got response from model")
                 async for event in stream:
                     if event.type in AnthropicModel.EVENT_TYPES:
-                        yield self.format_chunk(event.model_dump())
+                        yield self.format_chunk(event.model_dump(warnings=False))
 
                 usage = event.message.usage  # type: ignore
-                yield self.format_chunk({"type": "metadata", "usage": usage.model_dump()})
+                yield self.format_chunk({"type": "metadata", "usage": usage.model_dump(warnings=False)})
 
         except anthropic.RateLimitError as error:
             raise ModelThrottledException(str(error)) from error

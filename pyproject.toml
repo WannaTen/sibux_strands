@@ -38,6 +38,7 @@ dependencies = [
     "opentelemetry-api>=1.30.0,<2.0.0",
     "opentelemetry-sdk>=1.30.0,<2.0.0",
     "opentelemetry-instrumentation-threading>=0.51b0,<1.00b0",
+    "anthropic>=0.86.0",
 ]
 
 
@@ -70,8 +71,11 @@ Homepage = "https://github.com/strands-agents/sdk-python"
 Documentation = "https://strandsagents.com"
 
 
+[project.scripts]
+sibux = "sibux.main:main"
+
 [tool.hatch.build.targets.wheel]
-packages = ["src/strands"]
+packages = ["src/strands", "src/sibux"]
 
 
 [tool.hatch.version]
