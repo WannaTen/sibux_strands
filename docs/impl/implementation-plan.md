@@ -361,105 +361,131 @@ src/sibux/
 
 ---
 
-## Phase 2 -- 增强体验
+## Phase 2 -- 基础设施定型
 
-在 MVP 可用后, 按优先级逐步添加:
+目标: 在不改变 Phase 1 使用方式的前提下, 把运行时、持久化和事件模型定型, 为后续生产化和能力扩展提供稳定底座。
 
-### 2.1 Session Compaction (上下文压缩)
+### 2.1 Runtime Kernel Completion (运行时内核补全)
 
-**问题**: 长 session 积累大量历史, 超出 LLM 上下文窗口。
+**目标**: 从“直接创建 Agent 并调用”的 MVP 结构, 演进到可承载长会话、持久化、服务化的运行时内核。
+
+**交付物**:
+- `SessionRuntime` / `TurnContext` / `InvocationContext` 等内部运行时对象
+- 统一的消息模型, 明确 user / assistant / tool / reasoning / file 等 part 边界
+- token 统计与上下文窗口预算接口
+- 动态 tool registry, 不再依赖静态 `ALL_TOOLS` 列表
+- 配置模型扩展骨架, 为 storage / event / service / mcp 等后续配置预留字段
+
+**非目标**:
+- 不在此阶段引入 MCP、Skill、Plugin 等新能力
+- 不在此阶段实现交互式权限确认
+
+### 2.2 Storage Layer (SQLite 持久化)
+
+**目标**: 为 session、message、message part 等核心运行时状态提供可靠持久化, 支撑会话恢复、历史查看和服务接口。
+
+**首批数据表**:
+- `project` -- 项目元数据
+- `session` -- 会话元数据, 支持 parent_id 树状关系
+- `message` -- 消息记录, 包含角色、时序、token 统计、stop reason
+- `part` -- 消息组成单元, 支持 text / tool / reasoning / file 等类型
+
+**交付物**:
+- SQLite repository 抽象
+- session 创建、读取、追加消息、恢复最近会话
+- 基础 migration 机制, 保证后续 Phase 可继续扩表
+
+**非目标**:
+- 本阶段不落地 permission decision 持久化逻辑
+- 本阶段不要求暴露 HTTP API
+
+### 2.3 Unified Event Semantics (统一事件语义)
+
+**目标**: 先定义“系统里到底发生了什么”, 再分别实现 hook、bus、SSE 等传播方式。
+
+**需要定型的内容**:
+- 事件命名与层级, 例如 `session.*`, `chat.*`, `model.*`, `tool.*`, `storage.*`
+- 事件 payload 结构, 明确 session_id、turn_id、message_id、tool_call_id、timestamp 等字段
+- streaming delta 语义, 明确增量文本、工具状态、结束事件
+- interrupt / abort / error 语义, 保证 CLI 和 HTTP 使用同一套约定
+
+**交付物**:
+- 事件类型定义与 schema
+- 事件生命周期文档
+- 核心发射点清单, 说明哪些模块负责发什么事件
+
+**非目标**:
+- 本阶段只定语义和边界, 不要求把 bus / hook / SSE 全部实现完
+
+**Phase 2 依赖关系**:
+- `Storage Layer` 依赖 `运行时内核补全`, 因为要先有稳定的 session/message 模型
+- `统一事件语义` 依赖 `运行时内核补全`, 因为事件必须绑定到真实运行时对象
+
+---
+
+## Phase 3 -- 生产可用
+
+目标: 让 Sibux 在 CLI 和服务端场景下都具备稳定运行能力, 支持长会话、错误恢复、事件流和外部接口。
+
+### 3.1 Output Truncation v2 (完整版输出截断)
+
+**目标**: 工具输出不再只是简单截断, 而是具备可追溯、可恢复的上下文控制能力。
+
+**交付物**:
+- 超出阈值的工具输出写入临时文件或受控缓存目录
+- 截断返回值附带文件路径和摘要信息
+- 临时文件自动清理策略, 默认 7 天过期
+- 不同 agent / tool 的差异化截断配额
+
+### 3.2 Retry & Error Handling
+
+**目标**: 对可恢复错误做统一重试, 对不可恢复错误做清晰分类和暴露。
+
+**交付物**:
+- 可重试错误分类: `429`, `529`, provider overloaded 等
+- 统一退避策略: 优先使用 `retry-after`, 否则指数退避 `2s * 2^(attempt-1)`, 最大 30s
+- 明确不可重试错误: context overflow、auth error、invalid request 等
+- CLI 与 HTTP 共用的错误表示结构
+
+### 3.3 Session Compaction (上下文压缩)
+
+**目标**: 让长会话在有限上下文窗口内可持续运行。
 
 **两阶段策略**:
-1. **Prune**: 清空旧工具调用的输出内容, 保留调用结构 (保护最近 40K tokens)
-2. **Compact**: 用 LLM (compaction agent) 生成摘要, 替换旧消息
+1. `Prune`: 清空较旧工具调用的冗长输出, 保留调用结构和关键结论
+2. `Compact`: 使用 compaction agent 生成历史摘要, 替换旧消息
 
-**触发条件**: `total_tokens >= model.context_limit - reserved (20K)`
+**触发条件**:
+- `total_tokens >= model.context_limit - reserved`
+- 默认保留最近 20K tokens 的安全余量
 
-**实现路径**: Strands 已有 `SummarizingContextManager`, 可扩展实现 prune + compact 两阶段。
+**实现路径**:
+- 优先复用 Strands 的 `SummarizingContextManager`
+- 在其上扩展 prune + compact 双阶段策略
 
-### 2.2 Skill System (技能系统)
+### 3.4 Event Bus + Hook System
 
-**概念**: Skill 是 markdown 文件, 包含特定任务的专业指令。Agent 通过 `skill` 工具按需加载。
+**目标**: 在 Phase 2 统一事件语义的基础上, 落地内部事件传播和可拦截扩展点。
 
-**文件格式**:
-```markdown
----
-name: skill-name
-description: 一句话描述
----
-# 具体指令内容...
-```
+**Event Bus 交付物**:
+- `Bus` -- per-session 事件流
+- `GlobalBus` -- 进程级全局事件流
+- 订阅 / 发布接口
+- 支持 message delta、tool execution、abort、error、compaction 等核心事件
 
-**扫描位置**: `~/.config/sibux/skills/` + `.sibux/skills/`
-
-**实现**: 新增 `skill` 工具 + skill 列表注入 system prompt。
-
-### 2.3 Hook System (钩子系统)
-
-**关键 Hook 点**:
-- `chat.message` -- 用户消息创建后, LLM 调用前
+**Hook System 交付物**:
+- `chat.message` -- 用户消息创建后, 模型调用前
+- `chat.system.transform` -- system prompt 构建后, 最终下发前
 - `tool.execute.before` / `tool.execute.after` -- 工具执行前后
-- `chat.system.transform` -- 修改 system prompt
-- `session.compacting` -- 压缩前注入上下文
+- `session.compacting` -- 压缩前, 允许注入额外上下文
 
-**设计**: `(input, output) => None`, output 是可变对象, hook 可直接修改。
+**设计约束**:
+- hook 与 event bus 使用同一套事件语义
+- hook 负责“修改执行过程”, event bus 负责“广播执行事实”
 
-**实现路径**: Strands 已有 `hooks.registry`, 可扩展 hook 事件类型。
+### 3.5 HTTP Server + SSE
 
-### 2.4 MCP Integration (MCP 工具服务器)
-
-**配置**:
-```json
-{
-  "mcp": {
-    "github": {
-      "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-github"]
-    }
-  }
-}
-```
-
-**实现路径**: Strands 原生支持 `MCPClient`, 只需从 config 读取 MCP 配置并初始化。MCP 工具与内置工具等价, 经过相同的权限检查和 hook 触发。
-
-### 2.5 Output Truncation (完整版)
-
-- 超出 50KB 的工具输出存储到临时文件
-- 截断内容附带文件路径提示
-- 定期清理 (7 天过期)
-- `task` 权限的 agent 获得更大截断限制
-
-### 2.6 Retry & Error Handling
-
-- 可重试错误: rate limit (429), overloaded (529)
-- 退避策略: 优先用 `retry-after` 响应头, 否则指数退避 `2s * 2^(attempt-1)`, 最大 30s
-- 不可重试: context overflow, auth error
-
----
-
-## Phase 3 -- 生产级功能
-
-### 3.1 Storage Layer (SQLite 持久化)
-
-**数据表**:
-- `project` -- 项目元数据
-- `session` -- 会话 (关联 project, 支持 parent_id 树状结构)
-- `message` -- 消息 (user/assistant, token 统计, cost)
-- `part` -- 消息组成单元 (text/tool/reasoning/file)
-- `permission` -- 持久化 "always allow" 决策
-
-**实现**: 使用 SQLite + SQLAlchemy 或 Peewee。
-
-### 3.2 Event Bus (事件总线)
-
-**两层设计**:
-- `Bus` -- per-session 事件 (message delta, tool execution, error)
-- `GlobalBus` -- 跨 session 事件 (session created/destroyed)
-
-**用途**: 解耦模块间通信, 支持 SSE 实时推送。
-
-### 3.3 HTTP Server + SSE
+**目标**: 在已有运行时和事件系统之上提供服务化接口, 让 Sibux 不再局限于本地 REPL。
 
 **技术栈**: FastAPI + SSE
 
@@ -473,25 +499,105 @@ GET    /event                   SSE 实时事件流
 GET    /provider                列出可用模型
 ```
 
-### 3.4 Plan Agent (计划模式)
+**交付物**:
+- session API 与 storage 打通
+- streaming 响应与 SSE 事件打通
+- abort 语义与运行时 interrupt 对齐
+
+**Phase 3 依赖关系**:
+- `Output Truncation v2` 依赖 `运行时内核补全`, 因为要接入统一工具输出路径
+- `Retry & Error Handling` 依赖 `统一事件语义`, 因为错误和重试状态需要统一表示
+- `Session Compaction` 依赖 `运行时内核补全` 和 `Storage Layer`
+- `Event Bus + Hook System` 依赖 `统一事件语义`
+- `HTTP Server + SSE` 依赖 `Storage Layer` 与 `Event Bus + Hook System`
+
+---
+
+## Phase 4 -- 能力扩展
+
+目标: 在稳定底座和生产能力之上, 增加权限、安全边界、工作流、生态扩展和自动化能力。
+
+### 4.1 Permission System (完整权限系统)
+
+**目标**: 从 MVP 的“工具级预过滤”升级为运行时权限系统。
+
+**交付物**:
+- `allow` / `deny` / `ask` 三种 action
+- path-level 规则匹配, 如 `.env`、证书、密钥目录等
+- 运行时权限检查, 不再只在工具列表构建前过滤
+- 用户确认模式: `once` / `always` / `reject`
+- `always` 决策持久化到 SQLite
+
+**说明**:
+- Phase 4 中所有扩大能力边界的特性, 都应建立在完整权限系统之上
+
+### 4.2 MCP Integration (MCP 工具服务器)
+
+**目标**: 把外部 MCP 工具纳入统一工具体系。
+
+**交付物**:
+- 从 config 读取 MCP server 定义并初始化
+- stdio / 本地命令启动模式
+- MCP 工具参与同一套权限检查、事件发射和错误处理
+
+### 4.3 Skill System (技能系统)
+
+**目标**: 提供可复用的任务级专业指令封装。
+
+**文件格式**:
+```markdown
+---
+name: skill-name
+description: 一句话描述
+---
+# 具体指令内容...
+```
+
+**扫描位置**:
+- `~/.config/sibux/skills/`
+- `.sibux/skills/`
+
+**交付物**:
+- skill 扫描与索引
+- `skill` 工具
+- skill 列表注入 system prompt
+
+### 4.4 Plan Agent (计划模式)
+
+**目标**: 提供“先分析、后设计、再确认”的高价值工作流。
 
 **5 阶段工作流**:
-1. Initial Understanding -- 并行启动 explore subagent 探索代码库
-2. Design -- general subagent 设计方案
-3. Review -- 向用户确认关键决策
-4. Final Plan -- 写入计划文件 (唯一允许编辑的文件)
-5. Exit -- 通知用户计划完成
+1. `Initial Understanding` -- 并行启动 explore subagent 探索代码库
+2. `Design` -- general subagent 设计方案
+3. `Review` -- 向用户确认关键决策
+4. `Final Plan` -- 写入计划文件
+5. `Exit` -- 通知用户计划完成
 
-**权限约束**: plan agent 只能写 `.sibux/plans/*.md`, 其余文件只读。
+**权限约束**:
+- plan agent 只能写 `.sibux/plans/*.md`
+- 其余文件默认只读
 
-### 3.5 Permission Ask Mode (交互式权限)
+### 4.5 @agent 语法
 
-- 新增 `ask` action: 暂停执行, 等待用户确认
-- 用户可选: `once` (本次通过), `always` (持久化), `reject` (拒绝)
-- `always` 决策存储到 SQLite, 跨 session 生效
-- 默认规则: `.env` 文件读取需要确认
+**目标**: 提供显式 agent 入口语法, 但不引入新的执行模型。
 
-### 3.6 Plugin System (插件系统)
+**行为**:
+- 用户输入 `@explore 找所有 API 路由`
+- 解析 `@agent` 为 synthetic 消息
+- 最终仍然通过统一的 `task` 工具路径执行
+
+### 4.6 Structured Output
+
+**目标**: 提供稳定的结构化结果约束, 支撑后续自动化能力。
+
+**交付物**:
+- `format: { type: "json_schema", schema: {...} }` 输出约束
+- `StructuredOutput` 工具
+- 结构化结果校验与失败重试
+
+### 4.7 Plugin System (插件系统)
+
+**目标**: 允许外部扩展在不修改核心代码的情况下接入 Sibux。
 
 **Plugin 接口**:
 ```python
@@ -499,54 +605,77 @@ class Plugin(Protocol):
     async def init(self, ctx: PluginContext) -> Hooks: ...
 ```
 
-**加载**: 从配置中指定 Python 包或本地路径, 动态 import。
+**能力**:
+- 注册工具
+- 修改 system prompt
+- 拦截工具调用
+- 监听所有事件
 
-**能力**: 注册工具、修改 system prompt、拦截工具调用、监听所有事件。
+### 4.8 Agent Generation (LLM 生成 Agent)
 
-### 3.7 Git Snapshot
+**目标**: 让用户通过自然语言生成新的 agent 配置。
 
-- 每轮 LLM 调用前 `git stash` 创建 snapshot
-- 支持 `revert` 回滚到任意 snapshot
-- session 列表显示代码变更统计 (additions/deletions/files)
+**交付物**:
+- 生成 agent 配置: identifier + prompt + permission + model
+- 写入配置文件并立即生效
+- 与系统内置 agent 使用同一套配置模型
 
-### 3.8 Agent Generation (LLM 生成 Agent)
+### 4.9 Git Snapshot
 
-- 用户描述需求, LLM 生成 agent 配置 (identifier + prompt + permission)
-- 写入配置文件, 立即可用
-- 系统和用户定义的 agent 完全等价
+**目标**: 为每轮关键执行保留可回滚代码快照。
 
-### 3.9 @agent 语法
+**交付物**:
+- 每轮 LLM 调用前创建 git snapshot
+- 支持回滚到任意 snapshot
+- session 列表显示代码变更统计
 
-- 用户输入 `@explore 找所有 API 路由`
-- 解析 `@agent` -> 注入 synthetic 消息引导 LLM 调用 task 工具
-- 保持工具调用统一性
+**说明**:
+- 该能力价值较高, 但实现复杂度也高
+- 可在 Phase 4 内作为并行支线推进, 不阻塞其他扩展能力
 
-### 3.10 Structured Output
+**Phase 4 依赖关系**:
+- `Permission System` 是本阶段其他高能力特性的安全前置
+- `MCP Integration` 依赖 `Permission System`、`Event Bus + Hook System`
+- `Skill System` 依赖 `运行时内核补全` 与 `chat.system.transform` hook
+- `Plan Agent` 依赖 `Permission System` 与 `@agent` / `task` 路径稳定
+- `@agent` 语法依赖 `task` 工具与 agent registry 稳定
+- `Structured Output` 依赖 `Retry & Error Handling`
+- `Plugin System` 依赖 `Event Bus + Hook System`
+- `Agent Generation` 依赖 `Structured Output`
+- `Git Snapshot` 依赖 `Storage Layer` 与 `Permission System`
 
-- 支持 `format: { type: "json_schema", schema: {...} }` 约束输出
-- 注入 `StructuredOutput` 工具, 要求 LLM 通过该工具返回结构化结果
-- 失败自动重试
+---
+
+## 阶段依赖关系总览
+
+- `Phase 2 / 运行时内核补全` 是后续所有阶段的共同前置
+- `Phase 2 / Storage Layer` 是 `Session Compaction`、`HTTP Server + SSE`、`Permission System`、`Git Snapshot` 的前置
+- `Phase 2 / 统一事件语义` 是 `Event Bus + Hook System`、`HTTP Server + SSE`、`Plugin System` 的前置
+- `Phase 3 / Event Bus + Hook System` 是 `HTTP Server + SSE`、`MCP Integration`、`Plugin System` 的前置
+- `Phase 3 / Retry & Error Handling` 是 `Structured Output`、`MCP Integration` 等复杂执行路径的前置
+- `Phase 4 / Permission System` 必须先于 `MCP Integration`、`Plan Agent`、`Plugin System`、`Git Snapshot`
+- `Phase 4 / Structured Output` 必须先于 `Agent Generation`
 
 ---
 
 ## 实现优先级总结
 
 ```
-Phase 1 (MVP)          Phase 2 (增强)           Phase 3 (生产级)
-─────────────          ────────────             ──────────────
-Config System          Session Compaction       SQLite Storage
-Agent Definitions      Skill System             Event Bus
-Core Tools (7个)       Hook System              HTTP Server + SSE
-Permission (基础)      MCP Integration          Plan Agent
-System Prompt          Output Truncation        Permission Ask
-Session Loop           Retry & Error            Plugin System
-CLI REPL                                        Git Snapshot
-                                                Agent Generation
-                                                @agent 语法
-                                                Structured Output
+Phase 1 (MVP)          Phase 2 (基础设施)        Phase 3 (生产可用)        Phase 4 (能力扩展)
+─────────────          ────────────────          ────────────────          ────────────────
+Config System          Runtime Kernel            Output Truncation v2      Permission System
+Agent Definitions      SQLite Storage            Retry & Error Handling     MCP Integration
+Core Tools (7个)       Event Semantics           Session Compaction         Skill System
+Permission (基础)                               Event Bus + Hook System    Plan Agent
+System Prompt                                   HTTP Server + SSE          @agent 语法
+Session Loop                                                              Structured Output
+CLI REPL                                                                  Plugin System
+                                                                          Agent Generation
+                                                                          Git Snapshot
 ```
 
 **预估工作量**:
 - Phase 1: ~15 个核心文件, 约 2000-3000 行代码
-- Phase 2: ~10 个文件, 约 1500-2000 行
-- Phase 3: ~20 个文件, 约 3000-5000 行
+- Phase 2: ~8-12 个文件, 约 1200-2200 行
+- Phase 3: ~12-18 个文件, 约 2000-3500 行
+- Phase 4: ~15-25 个文件, 约 2500-4500 行
