@@ -207,11 +207,16 @@ strands-agents/
 │   └── ...
 │
 ├── docs/                                 # Developer documentation
-│   ├── README.md                         # Docs folder overview
 │   ├── STYLE_GUIDE.md                    # Code style conventions
 │   ├── HOOKS.md                          # Hooks system guide
 │   ├── PR.md                             # PR description guidelines
-│   └── MCP_CLIENT_ARCHITECTURE.md        # MCP threading architecture
+│   ├── MCP_CLIENT_ARCHITECTURE.md        # MCP threading architecture
+│   ├── STREAMING_EVENTS.md               # Streaming chunk and event reference
+│   ├── arch/                             # Architecture notes
+│   └── impl/                             # Implementation notes
+│
+├── scripts/                              # Developer workflow scripts
+│   └── setup-dev.sh                      # One-command local environment setup
 │
 ├── pyproject.toml                        # Project config (build, deps, tools)
 ├── AGENTS.md                             # This file
@@ -224,6 +229,7 @@ strands-agents/
 - **`tests/`**: Unit tests mirroring src/ structure
 - **`tests_integ/`**: Integration tests with real model providers
 - **`docs/`**: Developer documentation for contributors
+- **`scripts/`**: Local setup and contributor workflow scripts
 
 **IMPORTANT**: After making changes that affect the directory structure (adding new directories, moving files, or adding significant new files), you MUST update this directory structure section to reflect the current state of the repository.
 
@@ -232,8 +238,7 @@ strands-agents/
 ### 1. Environment Setup
 
 ```bash
-uv sync                                        # Install dependencies
-pre-commit install -t pre-commit -t commit-msg # Install hooks
+./scripts/setup-dev.sh                         # Install dev deps + git hooks
 ```
 
 ### 2. Making Changes
@@ -551,3 +556,4 @@ uv build                       # Build package
   - [HOOKS.md](./docs/HOOKS.md) - Hooks system guide
   - [PR.md](./docs/PR.md) - PR description guidelines
   - [MCP_CLIENT_ARCHITECTURE.md](./docs/MCP_CLIENT_ARCHITECTURE.md) - MCP threading design
+  - [STREAMING_EVENTS.md](./docs/STREAMING_EVENTS.md) - Streaming chunk and event reference
