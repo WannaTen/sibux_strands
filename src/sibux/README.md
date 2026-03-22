@@ -22,6 +22,37 @@ EOF
 uv run sibux
 ```
 
+## Development Setup
+
+For a fresh clone of this repository, run the bootstrap script from the repository root:
+
+```bash
+./scripts/setup-dev.sh
+```
+
+The script:
+
+- Syncs the development dependencies with `uv`
+- Installs the `pre-commit` and `commit-msg` Git hooks
+- Sets repository-local Git settings needed for development
+
+After it completes, `git commit` automatically runs the configured checks for this repository, including `ruff format --check`, `ruff check`, `mypy ./src`, `pytest`, and commit message validation.
+
+Common examples:
+
+```bash
+# Basic setup
+./scripts/setup-dev.sh
+
+# Run the hooks once after setup
+./scripts/setup-dev.sh --verify
+
+# Configure repository-local Git identity at the same time
+./scripts/setup-dev.sh --git-user-name "Jane Doe" --git-user-email "jane@example.com"
+```
+
+The script requires `git` and `uv` to be available on your machine.
+
 ## Configuration
 
 Config is loaded and merged in order (later sources win):

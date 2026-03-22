@@ -54,30 +54,36 @@ This project uses [hatchling](https://hatch.pypa.io/latest/build/#hatchling) as 
 
 ### Setting Up Your Development Environment
 
-1. Install dependencies using `uv`:
+1. Run the bootstrap script:
+   ```bash
+   ./scripts/setup-dev.sh
+   ```
+   This installs development dependencies, sets up Git hooks, and applies repository-local Git settings.
+
+2. Install dependencies manually using `uv` if you prefer:
    ```bash
    uv sync
    ```
 
 
-2. Set up pre-commit hooks:
+3. Set up pre-commit hooks manually if you prefer:
    ```bash
    pre-commit install -t pre-commit -t commit-msg
    ```
    This will automatically run formatters and conventional commit checks on your code before each commit.
 
-3. Run code formatters manually:
+4. Run code formatters manually:
    ```bash
    uv run ruff format
    ```
 
-4. Run linters:
+5. Run linters:
    ```bash
    uv run ruff check
    uv run mypy ./src
    ```
 
-5. Run unit tests:
+6. Run unit tests:
    ```bash
    uv run pytest
    ```
@@ -86,7 +92,7 @@ This project uses [hatchling](https://hatch.pypa.io/latest/build/#hatchling) as 
    uv run pytest --cov --cov-config=pyproject.toml
    ```
 
-6. Run integration tests:
+7. Run integration tests:
    ```bash
    uv run pytest tests_integ
    ```
@@ -98,7 +104,13 @@ We use [pre-commit](https://pre-commit.com/) to automatically run quality checks
 The pre-commit hook is installed with:
 
 ```bash
-pre-commit install
+./scripts/setup-dev.sh
+```
+
+Or manually:
+
+```bash
+pre-commit install -t pre-commit -t commit-msg
 ```
 
 You can also run the hooks manually on all files:

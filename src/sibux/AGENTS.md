@@ -32,6 +32,8 @@ src/sibux/
 ## Development
 
 ```bash
+./scripts/setup-dev.sh             # Install dev deps + Git hooks
+pre-commit run --all-files         # Run hooks manually
 uv run sibux                      # Run the agent
 uv run pytest tests/sibux/        # Run unit tests
 uv run ruff format src/sibux/     # Format

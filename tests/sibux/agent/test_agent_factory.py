@@ -158,8 +158,6 @@ class TestResolveModel:
 
     def test_agent_params_override_model_config(self) -> None:
         """Agent-level temperature/max_tokens override named model defaults."""
-        from sibux.agent.agent_factory import _resolve_model
-
         d = default_config_dict()
         d["model"] = {"sonnet": {"model": "anthropic/claude-sonnet-4-5", "temperature": 0.3, "max_tokens": 4096}}
         d["agents"]["build"]["temperature"] = 0.9

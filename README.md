@@ -315,6 +315,38 @@ We welcome contributions! See our [Contributing Guide](CONTRIBUTING.md) for deta
 - Code of Conduct
 - Reporting of security issues
 
+For a fresh clone, initialize the local development environment with:
+
+```bash
+./scripts/setup-dev.sh
+```
+
+This script is intended for contributors working on this repository. It:
+
+- Syncs the development environment with `uv`
+- Installs the `pre-commit` and `commit-msg` Git hooks
+- Applies repository-local Git settings such as `pull.rebase=true`
+
+After setup, every `git commit` automatically runs the repository checks from [`.pre-commit-config.yaml`](./.pre-commit-config.yaml), including `ruff format --check`, `ruff check`, `mypy ./src`, `pytest`, and commit message validation.
+
+Common usage:
+
+```bash
+# Basic setup
+./scripts/setup-dev.sh
+
+# Also run all hooks once after setup
+./scripts/setup-dev.sh --verify
+
+# Set repository-local Git identity during setup
+./scripts/setup-dev.sh --git-user-name "Jane Doe" --git-user-email "jane@example.com"
+```
+
+Prerequisites:
+
+- `git`
+- `uv`
+
 ## License
 
 This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
@@ -322,4 +354,3 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 ## Security
 
 See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more information.
-
