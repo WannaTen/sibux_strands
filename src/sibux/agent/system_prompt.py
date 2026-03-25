@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 _INSTRUCTION_FILENAMES = ["AGENTS.md", "CLAUDE.md", "OPENCODE.md"]
 
+
 # ComMent: system prompt 这里需要的结构是： agentconfig.prompt + instruction + environment
 def build_system_prompt(agent_config: AgentConfig, config: Config) -> str:
     """Build the full system prompt for an agent invocation.
@@ -64,6 +65,7 @@ def _build_environment_section() -> str:
     system = platform.system()
 
     return f"## Environment\n- Working directory: {cwd}\n- Platform: {system}\n- Date: {today}\n- Shell: {shell}"
+
 
 # ComMent: 这里是不是只需要有一个文件来指定所有的 instructions？
 def _load_instructions(config: Config) -> str:

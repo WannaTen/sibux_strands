@@ -63,9 +63,7 @@ def test_agent_with_file_session_and_context_manager(temp_dir):
     # Create a session
     session_manager = FileSessionManager(session_id=test_session_id, storage_dir=temp_dir)
     try:
-        agent = Agent(
-            session_manager=session_manager, context_manager=SlidingWindowContextManager(window_size=1)
-        )
+        agent = Agent(session_manager=session_manager, context_manager=SlidingWindowContextManager(window_size=1))
         agent("Hello!")
         assert len(session_manager.list_messages(test_session_id, agent.agent_id)) == 2
         # Context manager reduced messages
@@ -73,9 +71,7 @@ def test_agent_with_file_session_and_context_manager(temp_dir):
 
         # After agent is persisted and run, restore the agent and run it again
         session_manager_2 = FileSessionManager(session_id=test_session_id, storage_dir=temp_dir)
-        agent_2 = Agent(
-            session_manager=session_manager_2, context_manager=SlidingWindowContextManager(window_size=1)
-        )
+        agent_2 = Agent(session_manager=session_manager_2, context_manager=SlidingWindowContextManager(window_size=1))
         assert len(agent_2.messages) == 1
         assert agent_2.context_manager.removed_message_count == 1
         agent_2("Hello!")

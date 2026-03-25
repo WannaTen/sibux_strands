@@ -1,5 +1,6 @@
 """Human-in-the-loop interrupt system for agent workflows."""
 
+import uuid
 from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 
@@ -8,7 +9,7 @@ if TYPE_CHECKING:
     from .types.interrupt import InterruptResponseContent
 
 
-@dataclass
+@dataclass(init=False)
 class Interrupt:
     """Represents an interrupt that can pause agent execution for human-in-the-loop workflows.
 
@@ -23,6 +24,28 @@ class Interrupt:
     name: str
     reason: Any = None
     response: Any = None
+
+    def __init__(
+        self,
+        id: str | None = None,
+        name: str | None = None,
+        reason: Any = None,
+        response: Any = None,
+    ) -> None:
+        """Initialize an interrupt.
+
+        The ``id`` is optional for backwards compatibility in tests and manual construction.
+        """
+        if name is None:
+            if id is None:
+                raise TypeError("Interrupt.__init__() missing 1 required positional argument: 'name'")
+            name = id
+            id = None
+
+        self.id = str(uuid.uuid4()) if id is None else id
+        self.name = name
+        self.reason = reason
+        self.response = response
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dict for session management."""

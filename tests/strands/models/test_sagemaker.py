@@ -1,5 +1,6 @@
 """Tests for the Amazon SageMaker model provider."""
 
+import importlib
 import json
 import unittest.mock
 from typing import Any
@@ -8,14 +9,16 @@ import boto3
 import pytest
 from botocore.config import Config as BotocoreConfig
 
-from strands.models.sagemaker import (
-    FunctionCall,
-    SageMakerAIModel,
-    ToolCall,
-    UsageMetadata,
-)
 from strands.types.content import Messages
 from strands.types.tools import ToolSpec
+
+pytest.importorskip("openai")
+pytest.importorskip("mypy_boto3_sagemaker_runtime")
+sagemaker_module = importlib.import_module("strands.models.sagemaker")
+FunctionCall = sagemaker_module.FunctionCall
+SageMakerAIModel = sagemaker_module.SageMakerAIModel
+ToolCall = sagemaker_module.ToolCall
+UsageMetadata = sagemaker_module.UsageMetadata
 
 
 @pytest.fixture

@@ -26,6 +26,7 @@ from opentelemetry import trace as trace_api
 
 from .._async import run_async
 from ..agent import Agent
+from ..agent.agent import _InterruptState
 from ..agent.base import AgentBase
 from ..agent.state import AgentState
 from ..hooks.events import (
@@ -35,7 +36,6 @@ from ..hooks.events import (
     BeforeNodeCallEvent,
     MultiAgentInitializedEvent,
 )
-from ..agent.agent import _InterruptState
 from ..hooks.registry import HookProvider, HookRegistry, Interrupt
 from ..session import SessionManager
 from ..telemetry import get_tracer
@@ -1085,7 +1085,7 @@ class Graph(MultiAgentBase):
             if isinstance(self.state.task, str):
                 return [ContentBlock(text=self.state.task)]
             else:
-                return cast(list[ContentBlock], self.state.task)
+                return self.state.task
 
         # Combine task with dependency outputs
         node_input = []
@@ -1096,7 +1096,7 @@ class Graph(MultiAgentBase):
         else:
             # Add task content blocks with a prefix
             node_input.append(ContentBlock(text="Original Task:"))
-            node_input.extend(cast(list[ContentBlock], self.state.task))
+            node_input.extend(self.state.task)
 
         # Add dependency outputs
         node_input.append(ContentBlock(text="\nInputs from previous nodes:"))

@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
+from ..interrupt import _InterruptState
 from .content import Message
 
 if TYPE_CHECKING:
@@ -126,10 +127,16 @@ class SessionAgent:
         """Convert an Agent to a SessionAgent."""
         if agent.agent_id is None:
             raise ValueError("agent_id needs to be defined.")
+
+        internal_state = {}
+        if hasattr(agent, "_interrupt_state"):
+            internal_state["interrupt_state"] = agent._interrupt_state.to_dict()
+
         return cls(
             agent_id=agent.agent_id,
             context_manager_state=agent.context_manager.get_state(),
             state=agent.state.get(),
+            _internal_state=internal_state,
         )
 
     @classmethod
@@ -143,7 +150,9 @@ class SessionAgent:
 
     def initialize_internal_state(self, agent: "Agent") -> None:
         """Initialize internal state of agent."""
-        pass
+        interrupt_state = self._internal_state.get("interrupt_state")
+        if interrupt_state is not None:
+            agent._interrupt_state = _InterruptState.from_dict(interrupt_state)
 
 
 @dataclass

@@ -1,3 +1,4 @@
+import importlib
 import logging
 import unittest.mock
 
@@ -5,8 +6,10 @@ import pydantic
 import pytest
 
 import strands
-from strands.models.mistral import MistralModel
 from strands.types.exceptions import ModelThrottledException
+
+pytest.importorskip("mistralai")
+MistralModel = importlib.import_module("strands.models.mistral").MistralModel
 
 
 @pytest.fixture

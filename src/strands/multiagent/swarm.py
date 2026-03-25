@@ -26,6 +26,7 @@ from opentelemetry import trace as trace_api
 
 from .._async import run_async
 from ..agent import Agent
+from ..agent.agent import _InterruptState
 from ..agent.state import AgentState
 from ..hooks.events import (
     AfterMultiAgentInvocationEvent,
@@ -34,7 +35,6 @@ from ..hooks.events import (
     BeforeNodeCallEvent,
     MultiAgentInitializedEvent,
 )
-from ..agent.agent import _InterruptState
 from ..hooks.registry import HookProvider, HookRegistry, Interrupt
 from ..session import SessionManager
 from ..telemetry import get_tracer
@@ -851,7 +851,7 @@ class Swarm(MultiAgentBase):
 
                 if not isinstance(task, str):
                     # Include additional ContentBlocks in node input
-                    node_input = node_input + cast(list[ContentBlock], task)
+                    node_input = node_input + task
 
             # Execute node with streaming
             node.reset_executor_state()

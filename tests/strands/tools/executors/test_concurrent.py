@@ -19,9 +19,7 @@ async def test_concurrent_executor_execute(
         {"name": "weather_tool", "toolUseId": "1", "input": {}},
         {"name": "temperature_tool", "toolUseId": "2", "input": {}},
     ]
-    stream = executor._execute(
-        agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state
-    )
+    stream = executor._execute(agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state)
 
     tru_events = sorted(await alist(stream), key=lambda event: event.tool_use_id)
     exp_events = [
@@ -56,9 +54,7 @@ async def test_concurrent_executor_interrupt(
         {"name": "temperature_tool", "toolUseId": "test_tool_id_2", "input": {}},
     ]
 
-    stream = executor._execute(
-        agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state
-    )
+    stream = executor._execute(agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state)
 
     tru_events = sorted(await alist(stream), key=lambda event: event.tool_use_id)
     exp_events = [

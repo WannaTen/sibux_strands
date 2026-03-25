@@ -1,13 +1,15 @@
+import importlib
 import logging
 import unittest.mock
 
-import openai
 import pydantic
 import pytest
 
 import strands
-from strands.models.openai import OpenAIModel
 from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
+
+openai = pytest.importorskip("openai")
+OpenAIModel = importlib.import_module("strands.models.openai").OpenAIModel
 
 
 @pytest.fixture

@@ -1,11 +1,14 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates
+import importlib
 import logging
 import unittest.mock
 
 import pytest
 
 import strands
-from strands.models.llamaapi import LlamaAPIModel
+
+pytest.importorskip("llama_api_client")
+LlamaAPIModel = importlib.import_module("strands.models.llamaapi").LlamaAPIModel
 
 
 @pytest.fixture

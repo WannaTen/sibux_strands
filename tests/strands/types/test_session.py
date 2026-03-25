@@ -2,7 +2,6 @@ import json
 import unittest.mock
 from uuid import uuid4
 
-from strands.context_manager.null_context_manager import NullContextManager
 from strands.agent.state import AgentState
 from strands.context_manager.null_context_manager import NullContextManager
 from strands.interrupt import _InterruptState

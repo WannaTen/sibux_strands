@@ -115,6 +115,24 @@ warn_unreachable = true
 follow_untyped_imports = true
 ignore_missing_imports = false
 
+[[tool.mypy.overrides]]
+module = [
+    "google",
+    "google.*",
+    "litellm",
+    "litellm.*",
+    "llama_api_client",
+    "mistralai",
+    "ollama",
+    "openai",
+    "openai.*",
+    "writerai",
+    "mypy_boto3_sagemaker_runtime",
+    "opentelemetry.exporter.otlp.proto.http.metric_exporter",
+    "opentelemetry.exporter.otlp.proto.http.trace_exporter",
+]
+ignore_missing_imports = true
+
 [tool.ruff]
 line-length = 120
 include = ["examples/**/*.py", "src/**/*.py", "tests/**/*.py", "tests_integ/**/*.py"]

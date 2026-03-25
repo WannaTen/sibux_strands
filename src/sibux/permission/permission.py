@@ -3,6 +3,7 @@
 Rules are evaluated with last-match-wins semantics: the last matching rule in
 the list takes effect. If no rule matches, the default action is "allow".
 """
+
 # ComMent: permission 这里完全去掉，我发现我们并没有想清楚 permission 到底要怎么做
 # TODO(Phase 3): 当前是简化版 MVP 方案，仅支持全局 tool 过滤。
 # Phase 3 需要完整权限系统：

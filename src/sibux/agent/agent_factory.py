@@ -98,11 +98,13 @@ def _resolve_model(config: Config, agent_config: AgentConfig) -> Any:
 
     # Determine final parameters: agent overrides named model config
     final_temperature = (
-        agent_config.temperature if agent_config.temperature is not None
+        agent_config.temperature
+        if agent_config.temperature is not None
         else (model_options.temperature if model_options else None)
     )
     final_max_tokens = (
-        agent_config.max_tokens if agent_config.max_tokens is not None
+        agent_config.max_tokens
+        if agent_config.max_tokens is not None
         else (model_options.max_tokens if model_options else None)
     )
     final_top_p = model_options.top_p if model_options else None

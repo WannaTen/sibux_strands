@@ -13,9 +13,10 @@ from typing import TYPE_CHECKING, Any, cast
 from opentelemetry import trace as trace_api
 
 from ...hooks import AfterToolCallEvent, BeforeToolCallEvent
+from ...interrupt import InterruptException
 from ...telemetry.metrics import Trace
 from ...telemetry.tracer import get_tracer, serialize
-from ...types._events import ToolCancelEvent, ToolResultEvent, ToolStreamEvent, TypedEvent
+from ...types._events import ToolCancelEvent, ToolInterruptEvent, ToolResultEvent, ToolStreamEvent, TypedEvent
 from ...types.content import Message
 from ...types.tools import ToolChoice, ToolChoiceAuto, ToolConfig, ToolResult, ToolUse
 
@@ -37,7 +38,7 @@ class ToolExecutor(abc.ABC):
     ) -> tuple[BeforeToolCallEvent, list[Any]]:
         """Invoke the before tool call hook."""
         event = BeforeToolCallEvent(
-            agent=cast("Agent", agent),
+            agent=agent,
             selected_tool=tool_func,
             tool_use=tool_use,
             invocation_state=invocation_state,
@@ -57,7 +58,7 @@ class ToolExecutor(abc.ABC):
     ) -> tuple[AfterToolCallEvent, list[Any]]:
         """Invoke the after tool call hook."""
         event = AfterToolCallEvent(
-            agent=cast("Agent", agent),
+            agent=agent,
             selected_tool=selected_tool,
             tool_use=tool_use,
             invocation_state=invocation_state,
@@ -125,9 +126,14 @@ class ToolExecutor(abc.ABC):
 
         # Retry loop for tool execution - hooks can set after_event.retry = True to retry
         while True:
+            selected_tool = None
             before_event, interrupts = await ToolExecutor._invoke_before_tool_call_hook(
                 agent, tool_func, tool_use, invocation_state
             )
+
+            if interrupts:
+                yield ToolInterruptEvent(before_event.tool_use, interrupts)
+                return
 
             if before_event.cancel_tool:
                 cancel_message = (
@@ -176,13 +182,14 @@ class ToolExecutor(abc.ABC):
                     after_event, _ = await ToolExecutor._invoke_after_tool_call_hook(
                         agent, selected_tool, tool_use, invocation_state, result
                     )
-                    if after_event.retry:
+                    if getattr(after_event, "retry", False):
                         logger.debug("tool_name=<%s> | retry requested, retrying tool call", tool_name)
                         continue
                     yield ToolResultEvent(after_event.result)
                     tool_results.append(after_event.result)
                     return
                 exception: Exception | None = None
+                event: TypedEvent | ToolResult | Any = None
 
                 async for event in selected_tool.stream(tool_use, invocation_state, **kwargs):
                     # Internal optimization; for built-in AgentTools, we yield TypedEvents out of .stream()
@@ -190,6 +197,10 @@ class ToolExecutor(abc.ABC):
                     # In which case, as soon as we get a ToolResultEvent we're done and for ToolStreamEvent
                     # we yield it directly; all other cases (non-sdk AgentTools), we wrap events in
                     # ToolStreamEvent and the last event is just the result.
+
+                    if isinstance(event, ToolInterruptEvent):
+                        yield event
+                        return
 
                     if isinstance(event, ToolResultEvent):
                         # Preserve exception from decorated tools before extracting tool_result
@@ -209,7 +220,7 @@ class ToolExecutor(abc.ABC):
                     agent, selected_tool, tool_use, invocation_state, result, exception=exception
                 )
 
-                if after_event.retry:
+                if getattr(after_event, "retry", False):
                     logger.debug("tool_name=<%s> | retry requested, retrying tool call", tool_name)
                     continue
 
@@ -217,6 +228,9 @@ class ToolExecutor(abc.ABC):
                 tool_results.append(after_event.result)
                 return
 
+            except InterruptException as e:
+                yield ToolInterruptEvent(tool_use, [e.interrupt])
+                return
             except Exception as e:
                 logger.exception("tool_name=<%s> | failed to process tool", tool_name)
                 error_result: ToolResult = {
@@ -228,7 +242,7 @@ class ToolExecutor(abc.ABC):
                 after_event, _ = await ToolExecutor._invoke_after_tool_call_hook(
                     agent, selected_tool, tool_use, invocation_state, error_result, exception=e
                 )
-                if after_event.retry:
+                if getattr(after_event, "retry", False):
                     logger.debug("tool_name=<%s> | retry requested after exception, retrying tool call", tool_name)
                     continue
                 yield ToolResultEvent(after_event.result)
@@ -270,10 +284,17 @@ class ToolExecutor(abc.ABC):
         tool_start_time = time.time()
 
         with trace_api.use_span(tool_call_span):
-            async for event in ToolExecutor._stream(
-                agent, tool_use, tool_results, invocation_state, **kwargs
-            ):
+            event: TypedEvent | None = None
+            async for event in ToolExecutor._stream(agent, tool_use, tool_results, invocation_state, **kwargs):
                 yield event
+
+            if event is None:
+                tracer.end_tool_call_span(tool_call_span, None)
+                return
+
+            if isinstance(event, ToolInterruptEvent):
+                tracer.end_tool_call_span(tool_call_span, None)
+                return
 
             result_event = cast(ToolResultEvent, event)
             result = result_event.tool_result

@@ -750,11 +750,6 @@ async def test_executor_stream_bidi_event_no_retry_attribute(executor, agent, to
     agent.tool_registry.register_tool(counting_tool)
 
     tool_use: ToolUse = {"name": "counting_tool", "toolUseId": "1", "input": {}}
-    result: strands.types.tools.ToolResult = {
-        "toolUseId": "1",
-        "status": "success",
-        "content": [{"text": "attempt_1"}],
-    }
 
     # Create a MagicMock event that has no retry attribute
     no_retry_event = MagicMock()

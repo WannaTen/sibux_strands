@@ -3,27 +3,27 @@ repos:
     hooks:
       - id: uv-format
         name: Format code
-        entry: uv run ruff format --check
+        entry: uv run --frozen --no-sync ruff format --check
         language: system
         pass_filenames: false
         types: [python]
         stages: [pre-commit]
       - id: uv-lint
         name: Lint code
-        entry: bash -c 'uv run ruff check && uv run mypy ./src'
+        entry: bash -c 'uv run --frozen --no-sync ruff check && uv run --frozen --no-sync mypy ./src'
         language: system
         pass_filenames: false
         types: [python]
         stages: [pre-commit]
       - id: uv-test
         name: Unit tests
-        entry: uv run pytest
+        entry: uv run --frozen --no-sync pytest
         language: system
         pass_filenames: false
         types: [python]
         stages: [pre-commit]
       - id: commitizen-check
         name: Check commit message
-        entry: uv run cz check --commit-msg-file
+        entry: uv run --frozen --no-sync cz check --commit-msg-file
         language: system
         stages: [commit-msg]

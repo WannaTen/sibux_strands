@@ -1,13 +1,15 @@
+import importlib
 import unittest.mock
 from unittest.mock import call
 
 import pydantic
 import pytest
-from litellm.exceptions import ContextWindowExceededError
 
 import strands
-from strands.models.litellm import LiteLLMModel
 from strands.types.exceptions import ContextWindowOverflowException
+
+ContextWindowExceededError = pytest.importorskip("litellm.exceptions").ContextWindowExceededError
+LiteLLMModel = importlib.import_module("strands.models.litellm").LiteLLMModel
 
 
 @pytest.fixture

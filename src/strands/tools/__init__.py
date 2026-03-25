@@ -3,14 +3,12 @@
 This module provides the core functionality for creating, managing, and executing tools through agents.
 """
 
-from typing import Any
-
 from pydantic import BaseModel
 
+from ..types.tools import ToolSpec
 from .decorator import tool
 from .tool_provider import ToolProvider
 from .tools import InvalidToolUseNameException, PythonAgentTool, normalize_schema, normalize_tool_spec
-from ..types.tools import ToolSpec
 
 
 def convert_pydantic_to_tool_spec(model: type[BaseModel]) -> ToolSpec:

@@ -17,9 +17,6 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel
 from typing_extensions import TypedDict, Unpack, override
 
-S3Location = dict
-SourceLocation = dict
-
 from .._exception_notes import add_exception_note
 from ..event_loop import streaming
 from ..tools import convert_pydantic_to_tool_spec
@@ -33,6 +30,9 @@ from ..types.streaming import CitationsDelta, StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
 from ._validation import validate_config_keys
 from .model import CacheConfig, Model
+
+S3Location = dict
+SourceLocation = dict
 
 logger = logging.getLogger(__name__)
 
@@ -468,10 +468,9 @@ class BedrockModel(Model):
     def _handle_location(self, location: SourceLocation) -> dict[str, Any] | None:
         """Convert location content block to Bedrock format if its an S3Location."""
         if location["type"] == "s3":
-            s3_location = cast(S3Location, location)
-            formatted_document_s3: dict[str, Any] = {"uri": s3_location["uri"]}
-            if "bucketOwner" in s3_location:
-                formatted_document_s3["bucketOwner"] = s3_location["bucketOwner"]
+            formatted_document_s3: dict[str, Any] = {"uri": location["uri"]}
+            if "bucketOwner" in location:
+                formatted_document_s3["bucketOwner"] = location["bucketOwner"]
             return {"s3Location": formatted_document_s3}
         else:
             logger.warning("Non s3 location sources are not supported by Bedrock | skipping content block")

@@ -72,15 +72,15 @@ def mock_console_metrics_exporter():
 
 @pytest.fixture
 def mock_otlp_metrics_exporter():
-    with mock.patch(
-        "opentelemetry.exporter.otlp.proto.http.metric_exporter.OTLPMetricExporter"
-    ) as mock_otlp_metrics_exporter:
+    metric_exporter = pytest.importorskip("opentelemetry.exporter.otlp.proto.http.metric_exporter")
+    with mock.patch.object(metric_exporter, "OTLPMetricExporter") as mock_otlp_metrics_exporter:
         yield mock_otlp_metrics_exporter
 
 
 @pytest.fixture
 def mock_otlp_exporter():
-    with mock.patch("opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter") as mock_otlp_exporter:
+    trace_exporter = pytest.importorskip("opentelemetry.exporter.otlp.proto.http.trace_exporter")
+    with mock.patch.object(trace_exporter, "OTLPSpanExporter") as mock_otlp_exporter:
         yield mock_otlp_exporter
 
 

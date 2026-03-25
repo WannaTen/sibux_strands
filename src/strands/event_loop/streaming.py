@@ -23,9 +23,6 @@ from ..types._events import (
     TypedEvent,
 )
 from ..types.content import ContentBlock, Message, Messages, SystemContentBlock
-
-CitationsContentBlock = dict
-
 from ..types.streaming import (
     ContentBlockDeltaEvent,
     ContentBlockStart,
@@ -40,6 +37,8 @@ from ..types.streaming import (
     Usage,
 )
 from ..types.tools import ToolSpec, ToolUse
+
+CitationsContentBlock = dict
 
 logger = logging.getLogger(__name__)
 

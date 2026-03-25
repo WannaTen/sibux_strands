@@ -159,7 +159,9 @@ class StrandsTelemetry:
         allowing trace data to be exported to an OTLP endpoint. Any additional
         keyword arguments provided will be forwarded to the OTLPSpanExporter.
         """
-        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+            OTLPSpanExporter,
+        )
 
         try:
             otlp_exporter = OTLPSpanExporter(**kwargs)
@@ -183,7 +185,9 @@ class StrandsTelemetry:
                 metrics_readers.append(console_reader)
             if enable_otlp_exporter:
                 logger.info("Enabling OTLP metrics exporter")
-                from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
+                from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
+                    OTLPMetricExporter,
+                )
 
                 otlp_reader = PeriodicExportingMetricReader(OTLPMetricExporter())
                 metrics_readers.append(otlp_reader)

@@ -37,6 +37,7 @@ from ..types.exceptions import (
     ContextWindowOverflowException,
     EventLoopException,
     MaxTokensReachedException,
+    ModelThrottledException,
 )
 from ..types.streaming import StopReason
 from ..types.tools import ToolResult, ToolUse
@@ -98,7 +99,6 @@ async def event_loop_cycle(
         EventLoopException: If an error occurs during execution
         ContextWindowOverflowException: If the input is too large for the model
     """
-
     if "request_state" not in invocation_state:
         invocation_state["request_state"] = {}
 
@@ -132,15 +132,28 @@ async def event_loop_cycle(
                 stop_reason = "tool_use"
                 message = agent.messages[-1]
             else:
-                model_events = _handle_model_execution(
-                    agent, cycle_span, cycle_trace, invocation_state, tracer
-                )
-                async for model_event in model_events:
-                    if not isinstance(model_event, ModelStopReason):
-                        yield model_event
+                force_stop_emitted = False
+                try:
+                    model_events = _handle_model_execution(agent, cycle_span, cycle_trace, invocation_state, tracer)
+                    async for model_event in model_events:
+                        if isinstance(model_event, ForceStopEvent):
+                            force_stop_emitted = True
+                        if not isinstance(model_event, ModelStopReason):
+                            yield model_event
 
-                stop_reason, message, *_ = model_event["stop"]
-                yield ModelMessageEvent(message=message)
+                    stop_reason, message, *_ = model_event["stop"]
+                    yield ModelMessageEvent(message=message)
+                except EventLoopException:
+                    raise
+                except (ContextWindowOverflowException, MaxTokensReachedException, ModelThrottledException):
+                    raise
+                except Exception as e:
+                    if "event_loop_parent_cycle_id" not in invocation_state:
+                        raise
+                    if not force_stop_emitted:
+                        yield ForceStopEvent(reason=e)
+                    logger.exception("cycle failed")
+                    raise EventLoopException(e, invocation_state["request_state"]) from e
 
             try:
                 if stop_reason == "max_tokens":
@@ -173,6 +186,7 @@ async def event_loop_cycle(
                     if should_stop:
                         return
 
+                    yield StartEvent()
                     # Continue to next turn
                     continue
 
@@ -189,9 +203,7 @@ async def event_loop_cycle(
                 logger.exception("cycle failed")
                 raise EventLoopException(e, invocation_state["request_state"]) from e
 
-            yield EventLoopStopEvent(
-                stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"]
-            )
+            yield EventLoopStopEvent(stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"])
             return
 
 
@@ -421,6 +433,3 @@ async def _handle_tool_execution(
             agent.event_loop_metrics,
             invocation_state["request_state"],
         )
-
-
-

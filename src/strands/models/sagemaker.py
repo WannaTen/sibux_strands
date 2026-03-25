@@ -91,7 +91,7 @@ class ToolCall:
 class SageMakerAIModel(OpenAIModel):
     """Amazon SageMaker model provider implementation."""
 
-    client: SageMakerRuntimeClient  # type: ignore[assignment]
+    client: SageMakerRuntimeClient
 
     class SageMakerAIPayloadSchema(TypedDict, total=False):
         """Payload schema for the Amazon SageMaker AI model.
@@ -434,8 +434,8 @@ class SageMakerAIModel(OpenAIModel):
 
             else:
                 # Not all SageMaker AI models support streaming!
-                response = self.client.invoke_endpoint(**request)  # type: ignore[assignment]
-                final_response_json = json.loads(response["Body"].read().decode("utf-8"))  # type: ignore[attr-defined]
+                response = self.client.invoke_endpoint(**request)
+                final_response_json = json.loads(response["Body"].read().decode("utf-8"))
                 logger.info("response=<%s>", json.dumps(final_response_json, indent=2))
 
                 # Obtain the key elements from the response

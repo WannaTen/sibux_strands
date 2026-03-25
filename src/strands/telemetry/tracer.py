@@ -825,9 +825,7 @@ class Tracer:
                     {"content": serialize(message["content"])},
                 )
 
-    def _map_content_blocks_to_otel_parts(
-        self, content_blocks: list[ContentBlock]
-    ) -> list[dict[str, Any]]:
+    def _map_content_blocks_to_otel_parts(self, content_blocks: list[ContentBlock]) -> list[dict[str, Any]]:
         """Map content blocks to OpenTelemetry parts format."""
         parts: list[dict[str, Any]] = []
 

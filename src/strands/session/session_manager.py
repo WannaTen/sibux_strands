@@ -116,5 +116,3 @@ class SessionManager(HookProvider, ABC):
             "(initialize_multi_agent). Provide an implementation or use a "
             "SessionManager with session_type=SessionType.MULTI_AGENT."
         )
-
-

@@ -6,14 +6,16 @@ SDK. These types are modeled after the Bedrock API.
 - Bedrock docs: https://docs.aws.amazon.com/bedrock/latest/APIReference/API_Types_Amazon_Bedrock_Runtime.html
 """
 
-from typing import Literal
+from typing import Any, Literal
 
 from typing_extensions import NotRequired, TypedDict
 
 from .tools import ToolResult, ToolUse
 
-DocumentContent = dict
-ImageContent = dict
+DocumentContent = dict[str, Any]
+ImageContent = dict[str, Any]
+VideoContent = dict[str, Any]
+CitationsContent = dict[str, Any]
 
 
 class GuardContentText(TypedDict):
@@ -77,19 +79,27 @@ class ContentBlock(TypedDict, total=False):
 
     Attributes:
         cachePoint: A cache point configuration to optimize conversation history.
+        citationsContent: Generated content plus citation metadata.
+        document: Document content to include in the message.
         guardContent: Contains the content to assess with the guardrail.
+        image: Image content to include in the message.
         reasoningContent: Contains content regarding the reasoning that is carried out by the model.
         text: Text to include in the message.
         toolResult: The result for a tool request that a model makes.
         toolUse: Information about a tool use request from a model.
+        video: Video content to include in the message.
     """
 
     cachePoint: CachePoint
+    citationsContent: CitationsContent
+    document: DocumentContent
     guardContent: GuardContent
+    image: ImageContent
     reasoningContent: ReasoningContentBlock
     text: str
     toolResult: ToolResult
     toolUse: ToolUse
+    video: VideoContent
 
 
 class SystemContentBlock(TypedDict, total=False):

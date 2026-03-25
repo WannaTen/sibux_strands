@@ -103,6 +103,13 @@ class RepositorySessionManager(SessionManager):
             SessionAgent.from_agent(agent),
         )
 
+    def sync_bidi_agent(self, agent: Any, **kwargs: Any) -> None:
+        """Serialize and update a bidi agent into the session repository."""
+        self.session_repository.update_agent(
+            self.session_id,
+            SessionAgent(agent_id=agent.agent_id, state=agent.state.get(), context_manager_state={}),
+        )
+
     def initialize(self, agent: "Agent", **kwargs: Any) -> None:
         """Initialize an agent with a session.
 
@@ -162,6 +169,56 @@ class RepositorySessionManager(SessionManager):
 
             # Fix broken session histories: https://github.com/strands-agents/sdk-python/issues/859
             agent.messages = self._fix_broken_tool_use(agent.messages)
+
+    def initialize_bidi_agent(self, agent: Any, **kwargs: Any) -> None:
+        """Initialize a bidi agent with a session.
+
+        Bidi agents do not currently persist context manager or interrupt state.
+        """
+        if agent.agent_id in self._latest_agent_message:
+            raise SessionException("The `agent_id` of an agent must be unique in a session.")
+        self._latest_agent_message[agent.agent_id] = None
+
+        session_agent = self.session_repository.read_agent(self.session_id, agent.agent_id)
+
+        if session_agent is None:
+            logger.debug(
+                "agent_id=<%s> | session_id=<%s> | creating bidi agent",
+                agent.agent_id,
+                self.session_id,
+            )
+
+            session_agent = SessionAgent(agent_id=agent.agent_id, state=agent.state.get(), context_manager_state={})
+            self.session_repository.create_agent(self.session_id, session_agent)
+
+            session_message = None
+            for i, message in enumerate(agent.messages):
+                session_message = SessionMessage.from_message(message, i)
+                self.session_repository.create_message(self.session_id, agent.agent_id, session_message)
+            self._latest_agent_message[agent.agent_id] = session_message
+            return
+
+        logger.debug(
+            "agent_id=<%s> | session_id=<%s> | restoring bidi agent",
+            agent.agent_id,
+            self.session_id,
+        )
+        agent.state = AgentState(session_agent.state)
+
+        session_messages = self.session_repository.list_messages(
+            session_id=self.session_id,
+            agent_id=agent.agent_id,
+            offset=0,
+        )
+        if len(session_messages) > 0:
+            self._latest_agent_message[agent.agent_id] = session_messages[-1]
+
+        agent.messages = [session_message.to_message() for session_message in session_messages]
+        agent.messages = self._fix_broken_tool_use(agent.messages)
+
+    def append_bidi_message(self, message: Message, agent: Any, **kwargs: Any) -> None:
+        """Append a message to a bidi agent session."""
+        self.append_message(message, agent, **kwargs)
 
     def _fix_broken_tool_use(self, messages: list[Message]) -> list[Message]:
         """Fix broken tool use/result pairs in message history.
@@ -249,5 +306,3 @@ class RepositorySessionManager(SessionManager):
         else:
             logger.debug("session_id=<%s> | restoring multi-agent state", self.session_id)
             source.deserialize_state(state)
-
-

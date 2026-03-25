@@ -13,7 +13,9 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from .._async import run_async
+from ..interrupt import _InterruptState
 from ..tools.executors._executor import ToolExecutor
+from ..types._events import ToolInterruptEvent
 from ..types.content import ContentBlock, Message
 from ..types.exceptions import ConcurrencyException
 from ..types.tools import ToolResult, ToolUse
@@ -75,6 +77,9 @@ class _ToolCaller:
             else:
                 should_record_direct_tool_call = self._agent.record_direct_tool_call
 
+            if self._agent._interrupt_state.activated:
+                raise RuntimeError("cannot directly call tool during interrupt")
+
             should_lock = should_record_direct_tool_call
 
             from ..agent import Agent  # Locally imported to avoid circular reference
@@ -102,10 +107,13 @@ class _ToolCaller:
                 }
                 tool_results: list[ToolResult] = []
                 invocation_state = kwargs
+                interrupt_state = self._agent._interrupt_state.to_dict()
 
                 async def acall() -> ToolResult:
                     async for event in ToolExecutor._stream(self._agent, tool_use, tool_results, invocation_state):
-                        pass
+                        if isinstance(event, ToolInterruptEvent):
+                            self._agent._interrupt_state = _InterruptState.from_dict(interrupt_state)
+                            raise RuntimeError("cannot raise interrupt in direct tool call")
 
                     tool_result = tool_results[0]
 

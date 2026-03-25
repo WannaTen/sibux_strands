@@ -1,3 +1,4 @@
+import importlib
 import logging
 import unittest.mock
 from typing import Any
@@ -5,7 +6,9 @@ from typing import Any
 import pytest
 
 import strands
-from strands.models.writer import WriterModel
+
+pytest.importorskip("writerai")
+WriterModel = importlib.import_module("strands.models.writer").WriterModel
 
 
 @pytest.fixture

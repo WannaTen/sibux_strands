@@ -56,6 +56,7 @@ def main() -> None:
             print("\n[interrupted]")
         except Exception as exc:
             import traceback
+
             traceback.print_exc()
             print(f"Error: {exc}", file=sys.stderr)
 

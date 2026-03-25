@@ -9,10 +9,12 @@ The Agent interface supports two complementary interaction patterns:
 2. Method-style for direct tool access: `agent.tool.tool_name(param1="value")`
 """
 
+import inspect
+import json
 import logging
 import threading
 import warnings
-from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Mapping
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -31,6 +33,10 @@ from ..tools._tool_helpers import generate_missing_tool_result_content
 
 if TYPE_CHECKING:
     from ..tools import ToolProvider
+from ..context_manager import (
+    ContextManager,
+    SlidingWindowContextManager,
+)
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from ..hooks import (
     AfterInvocationEvent,
@@ -47,7 +53,7 @@ from ..models.bedrock import BedrockModel
 from ..models.model import Model
 from ..session.session_manager import SessionManager
 from ..telemetry.metrics import EventLoopMetrics
-from ..telemetry.tracer import get_tracer
+from ..telemetry.tracer import get_tracer, serialize
 from ..tools._caller import _ToolCaller
 from ..tools.executors import ConcurrentToolExecutor
 from ..tools.executors._executor import ToolExecutor
@@ -58,16 +64,8 @@ from ..types.agent import AgentInput, ConcurrentInvocationMode
 from ..types.content import ContentBlock, Message, Messages, SystemContentBlock
 from ..types.exceptions import ConcurrencyException, ContextWindowOverflowException
 from ..types.traces import AttributeValue
-from ..context_manager import (
-    ContextManager,
-    SlidingWindowContextManager,
-)
 from .agent_result import AgentResult
 from .base import AgentBase
-from ..context_manager import (
-    ContextManager,
-    SlidingWindowContextManager,
-)
 from .state import AgentState
 
 logger = logging.getLogger(__name__)
@@ -126,6 +124,7 @@ class Agent(AgentBase):
         description: str | None = None,
         state: AgentState | dict | None = None,
         hooks: list[HookProvider] | None = None,
+        plugins: list[Any] | None = None,
         session_manager: SessionManager | None = None,
         structured_output_prompt: str | None = None,
         tool_executor: ToolExecutor | None = None,
@@ -177,6 +176,8 @@ class Agent(AgentBase):
                 Defaults to an empty AgentState object.
             hooks: hooks to be added to the agent hook registry
                 Defaults to None.
+            plugins: Plugins to initialize against the agent after construction.
+                Each plugin may expose an ``init_agent(agent)`` method, which can be sync or async.
             session_manager: Manager for handling agent sessions including conversation history and state.
                 If provided, enables session-based persistence and state management.
             structured_output_prompt: Custom prompt message used when forcing structured output.
@@ -311,7 +312,10 @@ class Agent(AgentBase):
             for hook in hooks:
                 self.hooks.add_hook(hook)
 
+        self._plugins = plugins or []
+
         self.hooks.invoke_callbacks(AgentInitializedEvent(agent=self))
+        self._initialize_plugins()
 
     @property
     def system_prompt(self) -> str | None:
@@ -461,6 +465,45 @@ class Agent(AgentBase):
             _ = event
 
         return cast(AgentResult, event["result"])
+
+    def structured_output(
+        self,
+        output_model: type[BaseModel],
+        prompt: AgentInput = None,
+        *,
+        system_prompt: str | None = None,
+        invocation_state: dict[str, Any] | None = None,
+    ) -> BaseModel:
+        """Return structured output directly from the model.
+
+        This deprecated helper bypasses the agent loop and does not mutate conversation history.
+        """
+        warnings.warn("Agent.structured_output method is deprecated", DeprecationWarning, stacklevel=2)
+        return run_async(
+            lambda: self._structured_output_async_impl(
+                output_model,
+                prompt=prompt,
+                system_prompt=system_prompt,
+                invocation_state=invocation_state,
+            )
+        )
+
+    async def structured_output_async(
+        self,
+        output_model: type[BaseModel],
+        prompt: AgentInput = None,
+        *,
+        system_prompt: str | None = None,
+        invocation_state: dict[str, Any] | None = None,
+    ) -> BaseModel:
+        """Asynchronously return structured output directly from the model."""
+        warnings.warn("Agent.structured_output_async method is deprecated", DeprecationWarning, stacklevel=2)
+        return await self._structured_output_async_impl(
+            output_model,
+            prompt=prompt,
+            system_prompt=system_prompt,
+            invocation_state=invocation_state,
+        )
 
     def cleanup(self) -> None:
         """Clean up resources used by the agent.
@@ -700,9 +743,7 @@ class Agent(AgentBase):
                 AfterInvocationEvent(agent=self, invocation_state=invocation_state, result=agent_result)
             )
 
-    async def _execute_event_loop_cycle(
-        self, invocation_state: dict[str, Any]
-    ) -> AsyncGenerator[TypedEvent, None]:
+    async def _execute_event_loop_cycle(self, invocation_state: dict[str, Any]) -> AsyncGenerator[TypedEvent, None]:
         """Execute the event loop cycle with retry logic for context window limits.
 
         This internal method handles the execution of the event loop cycle and implements
@@ -783,6 +824,122 @@ class Agent(AgentBase):
         if messages is None:
             raise ValueError("Input prompt must be of type: `str | list[Contentblock] | Messages | None`.")
         return messages
+
+    async def _structured_output_async_impl(
+        self,
+        output_model: type[BaseModel],
+        prompt: AgentInput,
+        *,
+        system_prompt: str | None,
+        invocation_state: dict[str, Any] | None,
+    ) -> BaseModel:
+        """Execute the deprecated structured output path."""
+        if self._interrupt_state.activated:
+            raise RuntimeError("cannot call structured output during interrupt")
+
+        if self._concurrent_invocation_mode == ConcurrentInvocationMode.THROW:
+            lock_acquired = self._invocation_lock.acquire(blocking=False)
+            if not lock_acquired:
+                raise ConcurrencyException(
+                    "Agent is already processing a request. Concurrent invocations are not supported."
+                )
+
+        merged_state = invocation_state if invocation_state is not None else {}
+
+        try:
+            await self.hooks.invoke_callbacks_async(
+                BeforeInvocationEvent(agent=self, invocation_state=merged_state, messages=None)
+            )
+
+            messages = self._convert_structured_output_prompt_to_messages(prompt)
+            system_prompt_value = self.system_prompt if system_prompt is None else system_prompt
+
+            with self.tracer.tracer.start_as_current_span("execute_structured_output") as span:
+                span.set_attributes(
+                    {
+                        "gen_ai.system": "strands-agents",
+                        "gen_ai.agent.name": self.name,
+                        "gen_ai.agent.id": self.agent_id,
+                        "gen_ai.operation.name": "execute_structured_output",
+                    }
+                )
+
+                if system_prompt_value is not None:
+                    span.add_event(
+                        "gen_ai.system.message",
+                        attributes={"role": "system", "content": serialize([{"text": system_prompt_value}])},
+                    )
+
+                for message in messages:
+                    event_name = f"gen_ai.{message['role']}.message"
+                    span.add_event(
+                        event_name,
+                        attributes={"role": message["role"], "content": serialize(message["content"])},
+                    )
+
+                output: BaseModel | None = None
+                async for event in self.model.structured_output(
+                    output_model,
+                    messages,
+                    system_prompt=system_prompt_value,
+                ):
+                    if "output" in event:
+                        output = cast(BaseModel, event["output"])
+                    elif "stop" in event:
+                        continue
+                    else:
+                        self.callback_handler(**event)
+
+                if output is None:
+                    raise ValueError("Structured output model returned no output")
+
+                span.add_event("gen_ai.choice", attributes={"message": json.dumps(output.model_dump())})
+                return output
+
+        finally:
+            await self.hooks.invoke_callbacks_async(AfterInvocationEvent(agent=self, invocation_state=merged_state))
+            if self._invocation_lock.locked():
+                self._invocation_lock.release()
+
+    def _convert_structured_output_prompt_to_messages(self, prompt: AgentInput) -> Messages:
+        """Convert structured output prompts without mutating conversation history."""
+        if prompt is None:
+            return list(self.messages)
+
+        if isinstance(prompt, str):
+            return [{"role": "user", "content": [{"text": prompt}]}]
+
+        if isinstance(prompt, list):
+            if len(prompt) == 0:
+                return []
+
+            if all(isinstance(item, dict) for item in prompt):
+                if all(all(key in item for key in Message.__annotations__.keys()) for item in prompt):
+                    return cast(Messages, prompt)
+
+                if all(any(key in ContentBlock.__annotations__.keys() for key in item) for item in prompt):
+                    return [{"role": "user", "content": cast(list[ContentBlock], prompt)}]
+
+        raise ValueError("Input prompt must be of type: `str | list[Contentblock] | Messages | None`.")
+
+    def _initialize_plugins(self) -> None:
+        """Initialize configured plugins after agent construction completes."""
+        for plugin in self._plugins:
+            init_agent = getattr(plugin, "init_agent", None)
+            if init_agent is None:
+                continue
+
+            result = init_agent(self)
+            if inspect.isawaitable(result):
+                self._run_awaitable(result)
+
+    def _run_awaitable(self, awaitable: Awaitable[Any]) -> Any:
+        """Run an awaitable from synchronous code."""
+
+        async def await_result() -> Any:
+            return await awaitable
+
+        return run_async(await_result)
 
     def _start_agent_trace_span(self, messages: Messages) -> trace_api.Span:
         """Starts a trace span for the agent.

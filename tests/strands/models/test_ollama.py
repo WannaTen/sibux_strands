@@ -1,3 +1,4 @@
+import importlib
 import json
 import logging
 import unittest.mock
@@ -6,8 +7,10 @@ import pydantic
 import pytest
 
 import strands
-from strands.models.ollama import OllamaModel
 from strands.types.content import Messages
+
+pytest.importorskip("ollama")
+OllamaModel = importlib.import_module("strands.models.ollama").OllamaModel
 
 
 @pytest.fixture

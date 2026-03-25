@@ -408,10 +408,18 @@ class AnthropicModel(Model):
                 logger.debug("got response from model")
                 async for event in stream:
                     if event.type in AnthropicModel.EVENT_TYPES:
-                        yield self.format_chunk(event.model_dump(warnings=False))
+                        try:
+                            event_data = event.model_dump(warnings=False)
+                        except TypeError:
+                            event_data = event.model_dump()
+                        yield self.format_chunk(event_data)
 
                 usage = event.message.usage  # type: ignore
-                yield self.format_chunk({"type": "metadata", "usage": usage.model_dump(warnings=False)})
+                try:
+                    usage_data = usage.model_dump(warnings=False)
+                except TypeError:
+                    usage_data = usage.model_dump()
+                yield self.format_chunk({"type": "metadata", "usage": usage_data})
 
         except anthropic.RateLimitError as error:
             raise ModelThrottledException(str(error)) from error

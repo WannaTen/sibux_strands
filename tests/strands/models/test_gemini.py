@@ -1,14 +1,16 @@
+import importlib
 import json
 import logging
 import unittest.mock
 
 import pydantic
 import pytest
-from google import genai
 
 import strands
-from strands.models.gemini import GeminiModel
 from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
+
+genai = pytest.importorskip("google.genai")
+GeminiModel = importlib.import_module("strands.models.gemini").GeminiModel
 
 
 @pytest.fixture
