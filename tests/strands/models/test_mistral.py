@@ -454,9 +454,9 @@ async def test_stream(mistral_client, model, agenerator, alist, captured_warning
                     delta=unittest.mock.Mock(content="test stream", tool_calls=None),
                     finish_reason="end_turn",
                 )
-            ]
+            ],
+            usage=mock_usage,
         ),
-        usage=mock_usage,
     )
 
     mistral_client.chat.stream_async = unittest.mock.AsyncMock(return_value=agenerator([mock_event]))
@@ -480,6 +480,30 @@ async def test_stream(mistral_client, model, agenerator, alist, captured_warning
 
 
 @pytest.mark.asyncio
+async def test_stream_no_usage(mistral_client, model, agenerator, alist):
+    mock_event = unittest.mock.Mock(
+        data=unittest.mock.Mock(
+            choices=[
+                unittest.mock.Mock(
+                    delta=unittest.mock.Mock(content="test stream", tool_calls=None),
+                    finish_reason="end_turn",
+                )
+            ],
+            usage=None,
+        ),
+    )
+
+    mistral_client.chat.stream_async = unittest.mock.AsyncMock(return_value=agenerator([mock_event]))
+
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    response = model.stream(messages, None, None)
+
+    # Should complete without error and not yield a metadata chunk
+    chunks = await alist(response)
+    assert not any("metadata" in c for c in chunks if isinstance(c, dict))
+
+
+@pytest.mark.asyncio
 async def test_tool_choice_not_supported_warns(mistral_client, model, agenerator, alist, captured_warnings):
     tool_choice = {"auto": {}}
 
@@ -495,9 +519,9 @@ async def test_tool_choice_not_supported_warns(mistral_client, model, agenerator
                     delta=unittest.mock.Mock(content="test stream", tool_calls=None),
                     finish_reason="end_turn",
                 )
-            ]
+            ],
+            usage=mock_usage,
         ),
-        usage=mock_usage,
     )
 
     mistral_client.chat.stream_async = unittest.mock.AsyncMock(return_value=agenerator([mock_event]))

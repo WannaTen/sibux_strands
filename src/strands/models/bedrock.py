@@ -179,13 +179,15 @@ class BedrockModel(Model):
         logger.debug("region=<%s> | bedrock client created", self.client.meta.region_name)
 
     @property
-    def _supports_caching(self) -> bool:
-        """Whether this model supports prompt caching.
+    def _cache_strategy(self) -> str | None:
+        """The cache strategy for this model based on its model ID.
 
-        Returns True for Claude models on Bedrock.
+        Returns the appropriate cache strategy name, or None if automatic caching is not supported for this model.
         """
         model_id = self.config.get("model_id", "").lower()
-        return "claude" in model_id or "anthropic" in model_id
+        if "claude" in model_id or "anthropic" in model_id:
+            return "anthropic"
+        return None
 
     @override
     def update_config(self, **model_config: Unpack[BedrockConfig]) -> None:  # type: ignore
@@ -338,7 +340,7 @@ class BedrockModel(Model):
         return {"additionalModelRequestFields": additional_fields}
 
     def _inject_cache_point(self, messages: list[dict[str, Any]]) -> None:
-        """Inject a cache point at the end of the last assistant message.
+        """Inject a cache point at the end of the last user message.
 
         Args:
             messages: List of messages to inject cache point into (modified in place).
@@ -346,7 +348,7 @@ class BedrockModel(Model):
         if not messages:
             return
 
-        last_assistant_idx: int | None = None
+        last_user_idx: int | None = None
         for msg_idx, msg in enumerate(messages):
             content = msg.get("content", [])
             for block_idx, block in reversed(list(enumerate(content))):
@@ -357,12 +359,29 @@ class BedrockModel(Model):
                         msg_idx,
                         block_idx,
                     )
-            if msg.get("role") == "assistant":
-                last_assistant_idx = msg_idx
+            if msg.get("role") == "user":
+                last_user_idx = msg_idx
 
-        if last_assistant_idx is not None and messages[last_assistant_idx].get("content"):
-            messages[last_assistant_idx]["content"].append({"cachePoint": {"type": "default"}})
-            logger.debug("msg_idx=<%s> | added cache point to last assistant message", last_assistant_idx)
+        if last_user_idx is not None and messages[last_user_idx].get("content"):
+            messages[last_user_idx]["content"].append({"cachePoint": {"type": "default"}})
+            logger.debug("msg_idx=<%s> | added cache point to last user message", last_user_idx)
+
+    def _find_last_user_text_message_index(self, messages: Messages) -> int | None:
+        """Find the index of the last user message containing text or image content.
+
+        This is used for guardrail_latest_message to ensure that guardContent wrapping
+        targets the correct message even when toolResult messages follow.
+
+        Args:
+            messages: List of messages to search
+
+        Returns:
+            Index of the last user message with text/image content, or None if not found
+        """
+        for idx, msg in reversed(list(enumerate(messages))):
+            if msg["role"] == "user" and any("text" in cb or "image" in cb for cb in msg.get("content", [])):
+                return idx
+        return None
 
     def _format_bedrock_messages(self, messages: Messages) -> list[dict[str, Any]]:
         """Format messages for Bedrock API compatibility.
@@ -392,7 +411,12 @@ class BedrockModel(Model):
         filtered_unknown_members = False
         dropped_deepseek_reasoning_content = False
 
-        guardrail_latest_message = self.config.get("guardrail_latest_message", False)
+        # Pre-compute the index of the last user message containing text or image content.
+        # This ensures guardContent wrapping is maintained across tool execution cycles, where
+        # the final message in the list is a toolResult (role=user) rather than text/image content.
+        last_user_text_idx = None
+        if self.config.get("guardrail_latest_message", False):
+            last_user_text_idx = self._find_last_user_text_message_index(messages)
 
         for idx, message in enumerate(messages):
             cleaned_content: list[dict[str, Any]] = []
@@ -414,13 +438,8 @@ class BedrockModel(Model):
                 if formatted_content is None:
                     continue
 
-                # Wrap text or image content in guardrailContent if this is the last user message
-                if (
-                    guardrail_latest_message
-                    and idx == len(messages) - 1
-                    and message["role"] == "user"
-                    and ("text" in formatted_content or "image" in formatted_content)
-                ):
+                # Wrap text or image content in guardContent if this is the last user text/image message
+                if idx == last_user_text_idx and ("text" in formatted_content or "image" in formatted_content):
                     if "text" in formatted_content:
                         formatted_content = {"guardContent": {"text": {"text": formatted_content["text"]}}}
                     elif "image" in formatted_content:
@@ -443,14 +462,17 @@ class BedrockModel(Model):
 
         # Inject cache point into cleaned_messages (not original messages) if cache_config is set
         cache_config = self.config.get("cache_config")
-        if cache_config and cache_config.strategy == "auto":
-            if self._supports_caching:
+        if cache_config:
+            strategy: str | None = cache_config.strategy
+            if strategy == "auto":
+                strategy = self._cache_strategy
+                if not strategy:
+                    logger.warning(
+                        "model_id=<%s> | cache_config is enabled but this model does not support automatic caching",
+                        self.config.get("model_id"),
+                    )
+            if strategy == "anthropic":
                 self._inject_cache_point(cleaned_messages)
-            else:
-                logger.warning(
-                    "model_id=<%s> | cache_config is enabled but this model does not support caching",
-                    self.config.get("model_id"),
-                )
 
         return cleaned_messages
 
@@ -801,8 +823,6 @@ class BedrockModel(Model):
             logger.debug("got response from model")
             if streaming:
                 response = self.client.converse_stream(**request)
-                # Track tool use events to fix stopReason for streaming responses
-                has_tool_use = False
                 for chunk in response["stream"]:
                     if (
                         "metadata" in chunk
@@ -814,24 +834,7 @@ class BedrockModel(Model):
                             for event in self._generate_redaction_events():
                                 callback(event)
 
-                    # Track if we see tool use events
-                    if "contentBlockStart" in chunk and chunk["contentBlockStart"].get("start", {}).get("toolUse"):
-                        has_tool_use = True
-
-                    # Fix stopReason for streaming responses that contain tool use
-                    if (
-                        has_tool_use
-                        and "messageStop" in chunk
-                        and (message_stop := chunk["messageStop"]).get("stopReason") == "end_turn"
-                    ):
-                        # Create corrected chunk with tool_use stopReason
-                        modified_chunk = chunk.copy()
-                        modified_chunk["messageStop"] = message_stop.copy()
-                        modified_chunk["messageStop"]["stopReason"] = "tool_use"
-                        logger.warning("Override stop reason from end_turn to tool_use")
-                        callback(modified_chunk)
-                    else:
-                        callback(chunk)
+                    callback(chunk)
 
             else:
                 response = self.client.converse(**request)
@@ -970,17 +973,9 @@ class BedrockModel(Model):
             yield {"contentBlockStop": {}}
 
         # Yield messageStop event
-        # Fix stopReason for models that return end_turn when they should return tool_use on non-streaming side
-        current_stop_reason = response["stopReason"]
-        if current_stop_reason == "end_turn":
-            message_content = response["output"]["message"]["content"]
-            if any("toolUse" in content for content in message_content):
-                current_stop_reason = "tool_use"
-                logger.warning("Override stop reason from end_turn to tool_use")
-
         yield {
             "messageStop": {
-                "stopReason": current_stop_reason,
+                "stopReason": response["stopReason"],
                 "additionalModelResponseFields": response.get("additionalModelResponseFields"),
             }
         }
