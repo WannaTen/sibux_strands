@@ -2,6 +2,7 @@
 
 import json
 import logging
+import threading
 import time
 import warnings
 from collections.abc import AsyncGenerator, AsyncIterable
@@ -324,16 +325,31 @@ def handle_content_block_stop(state: dict[str, Any]) -> dict[str, Any]:
     return state
 
 
-def handle_message_stop(event: MessageStopEvent) -> StopReason:
+def handle_message_stop(event: MessageStopEvent, content: list[dict[str, Any]]) -> StopReason:
     """Handles the end of a message by returning the stop reason.
+
+    Some models return "end_turn" even when tool calls are present, which prevents the event loop from processing
+    those tool calls. This function overrides to "tool_use" so tool execution proceeds correctly.
 
     Args:
         event: Stop event.
+        content: The message content blocks accumulated during streaming.
 
     Returns:
         The reason for stopping the stream.
     """
-    return event["stopReason"]
+    stop_reason = event["stopReason"]
+
+    if stop_reason == "end_turn" and any("toolUse" in item for item in content):
+        logger.warning(
+            "original_stop_reason=<%s>, new_stop_reason=<%s> | "
+            "overriding stop reason due to toolUse blocks in response",
+            "end_turn",
+            "tool_use",
+        )
+        stop_reason = "tool_use"
+
+    return stop_reason
 
 
 def handle_redact_content(event: RedactContentEvent, state: dict[str, Any]) -> None:
@@ -369,13 +385,16 @@ def extract_usage_metrics(event: MetadataEvent, time_to_first_byte_ms: int | Non
 
 
 async def process_stream(
-    chunks: AsyncIterable[StreamEvent], start_time: float | None = None
+    chunks: AsyncIterable[StreamEvent],
+    start_time: float | None = None,
+    cancel_signal: threading.Event | None = None,
 ) -> AsyncGenerator[TypedEvent, None]:
     """Processes the response stream from the API, constructing the final message and extracting usage metrics.
 
     Args:
         chunks: The chunks of the response stream from the model.
         start_time: Time when the model request is initiated
+        cancel_signal: Optional threading.Event to check for cancellation during streaming.
 
     Yields:
         The reason for stopping, the constructed message, and the usage metrics.
@@ -396,6 +415,19 @@ async def process_stream(
     metrics: Metrics = Metrics(latencyMs=0, timeToFirstByteMs=0)
 
     async for chunk in chunks:
+        # Check for cancellation during stream processing
+        if cancel_signal and cancel_signal.is_set():
+            logger.debug("cancellation detected during stream processing")
+            # Return cancelled stop reason with cancellation message
+            # The incomplete message in state["message"] is discarded and never added to agent.messages
+            yield ModelStopReason(
+                stop_reason="cancelled",
+                message={"role": "assistant", "content": [{"text": "Cancelled by user"}]},
+                usage=usage,
+                metrics=metrics,
+            )
+            return
+
         # Track first byte time when we get first content
         if first_byte_time is None and ("contentBlockDelta" in chunk or "contentBlockStart" in chunk):
             first_byte_time = time.time()
@@ -411,7 +443,7 @@ async def process_stream(
         elif "contentBlockStop" in chunk:
             state = handle_content_block_stop(state)
         elif "messageStop" in chunk:
-            stop_reason = handle_message_stop(chunk["messageStop"])
+            stop_reason = handle_message_stop(chunk["messageStop"], state["message"].get("content", []))
         elif "metadata" in chunk:
             time_to_first_byte_ms = (
                 int(1000 * (first_byte_time - start_time)) if (start_time and first_byte_time) else None
@@ -432,6 +464,7 @@ async def stream_messages(
     tool_choice: Any | None = None,
     system_prompt_content: list[SystemContentBlock] | None = None,
     invocation_state: dict[str, Any] | None = None,
+    cancel_signal: threading.Event | None = None,
     **kwargs: Any,
 ) -> AsyncGenerator[TypedEvent, None]:
     """Streams messages to the model and processes the response.
@@ -445,6 +478,7 @@ async def stream_messages(
         system_prompt_content: The authoritative system prompt content blocks that always contains the
             system prompt data.
         invocation_state: Caller-provided state/context that was passed to the agent when it was invoked.
+        cancel_signal: Optional threading.Event to check for cancellation during streaming.
         **kwargs: Additional keyword arguments for future extensibility.
 
     Yields:
@@ -464,5 +498,5 @@ async def stream_messages(
         invocation_state=invocation_state,
     )
 
-    async for event in process_stream(chunks, start_time):
+    async for event in process_stream(chunks, start_time, cancel_signal):
         yield event

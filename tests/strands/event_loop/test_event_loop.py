@@ -1,5 +1,6 @@
 import asyncio
 import concurrent
+import threading
 import unittest.mock
 from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 
@@ -150,6 +151,7 @@ def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_regis
     mock.hooks = hook_registry
     mock.tool_executor = tool_executor
     mock._interrupt_state = _InterruptState()
+    mock._cancel_signal = threading.Event()
     mock.trace_attributes = {}
     mock.retry_strategy = ModelRetryStrategy()
 
@@ -756,6 +758,7 @@ async def test_request_state_initialization(alist):
     mock_agent = MagicMock()
     # not setting this to False results in endless recursion
     mock_agent._interrupt_state.activated = False
+    mock_agent._cancel_signal = threading.Event()
     mock_agent.event_loop_metrics.start_cycle.return_value = (0, MagicMock())
     mock_agent.hooks.invoke_callbacks_async = AsyncMock()
 
@@ -1063,3 +1066,51 @@ async def test_invalid_tool_names_adds_tool_uses(agent, model, alist):
         ],
         "role": "user",
     }
+
+
+@pytest.mark.asyncio
+async def test_event_loop_metrics_recorded_before_recursion(
+    agent,
+    model,
+    tool,
+    agenerator,
+    alist,
+):
+    model.stream.side_effect = [
+        agenerator(
+            [
+                {
+                    "contentBlockStart": {
+                        "start": {
+                            "toolUse": {
+                                "toolUseId": "t1",
+                                "name": tool.tool_spec["name"],
+                            },
+                        },
+                    },
+                },
+                {"contentBlockStop": {}},
+                {"messageStop": {"stopReason": "tool_use"}},
+            ]
+        ),
+        agenerator(
+            [
+                {"contentBlockDelta": {"delta": {"text": "test text"}}},
+                {"contentBlockStop": {}},
+            ]
+        ),
+    ]
+
+    with unittest.mock.patch.object(agent.event_loop_metrics, "end_cycle") as mock_end_cycle:
+        stream = strands.event_loop.event_loop.event_loop_cycle(
+            agent=agent,
+            invocation_state={"request_state": {}},
+        )
+        events = await alist(stream)
+
+        # Verify end_cycle was called once for tool cycle, once for text cycle
+        assert mock_end_cycle.call_count == 2
+
+        # Verify the event loop completed successfully
+        tru_stop_reason, _, _, _, _, _ = events[-1]["stop"]
+        assert tru_stop_reason == "end_turn"

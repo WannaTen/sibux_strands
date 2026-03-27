@@ -9,12 +9,11 @@ The Agent interface supports two complementary interaction patterns:
 2. Method-style for direct tool access: `agent.tool.tool_name(param1="value")`
 """
 
-import inspect
 import json
 import logging
 import threading
 import warnings
-from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Mapping
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -124,7 +123,6 @@ class Agent(AgentBase):
         description: str | None = None,
         state: AgentState | dict | None = None,
         hooks: list[HookProvider] | None = None,
-        plugins: list[Any] | None = None,
         session_manager: SessionManager | None = None,
         structured_output_prompt: str | None = None,
         tool_executor: ToolExecutor | None = None,
@@ -176,8 +174,6 @@ class Agent(AgentBase):
                 Defaults to an empty AgentState object.
             hooks: hooks to be added to the agent hook registry
                 Defaults to None.
-            plugins: Plugins to initialize against the agent after construction.
-                Each plugin may expose an ``init_agent(agent)`` method, which can be sync or async.
             session_manager: Manager for handling agent sessions including conversation history and state.
                 If provided, enables session-based persistence and state management.
             structured_output_prompt: Custom prompt message used when forcing structured output.
@@ -232,6 +228,9 @@ class Agent(AgentBase):
 
         self.record_direct_tool_call = record_direct_tool_call
         self.load_tools_from_directory = load_tools_from_directory
+
+        # Create internal cancel signal for graceful cancellation using threading.Event
+        self._cancel_signal = threading.Event()
 
         self.tool_registry = ToolRegistry()
 
@@ -312,10 +311,38 @@ class Agent(AgentBase):
             for hook in hooks:
                 self.hooks.add_hook(hook)
 
-        self._plugins = plugins or []
-
         self.hooks.invoke_callbacks(AgentInitializedEvent(agent=self))
-        self._initialize_plugins()
+
+    def cancel(self) -> None:
+        """Cancel the currently running agent invocation.
+
+        This method is thread-safe and can be called from any context
+        (e.g., another thread, web request handler, background task).
+
+        The agent will stop gracefully at the next checkpoint:
+        - During model response streaming
+        - Before tool execution
+
+        The agent will return a result with stop_reason="cancelled".
+
+        Example:
+            ```python
+            agent = Agent(model=model)
+
+            # Start agent in background
+            task = asyncio.create_task(agent.invoke_async("Hello"))
+
+            # Cancel from another context
+            agent.cancel()
+
+            result = await task
+            assert result.stop_reason == "cancelled"
+            ```
+
+        Note:
+            Multiple calls to cancel() are safe and idempotent.
+        """
+        self._cancel_signal.set()
 
     @property
     def system_prompt(self) -> str | None:
@@ -683,6 +710,9 @@ class Agent(AgentBase):
                     raise
 
         finally:
+            # Clear cancel signal to allow agent reuse after cancellation
+            self._cancel_signal.clear()
+
             if self._invocation_lock.locked():
                 self._invocation_lock.release()
 
@@ -704,44 +734,59 @@ class Agent(AgentBase):
         Yields:
             Events from the event loop cycle.
         """
-        before_invocation_event, _interrupts = await self.hooks.invoke_callbacks_async(
-            BeforeInvocationEvent(agent=self, invocation_state=invocation_state, messages=messages)
-        )
-        messages = before_invocation_event.messages if before_invocation_event.messages is not None else messages
+        current_messages: Messages | None = messages
 
-        agent_result: AgentResult | None = None
-        try:
-            yield InitEventLoopEvent()
-
-            await self._append_messages(*messages)
-
-            # Execute the event loop cycle with retry logic for context limits
-            events = self._execute_event_loop_cycle(invocation_state)
-            async for event in events:
-                # Signal from the model provider that the message sent by the user should be redacted,
-                # likely due to a guardrail.
-                if (
-                    isinstance(event, ModelStreamChunkEvent)
-                    and event.chunk
-                    and event.chunk.get("redactContent")
-                    and event.chunk["redactContent"].get("redactUserContentMessage")
-                ):
-                    self.messages[-1]["content"] = self._redact_user_content(
-                        self.messages[-1]["content"], str(event.chunk["redactContent"]["redactUserContentMessage"])
-                    )
-                    if self._session_manager:
-                        self._session_manager.redact_latest_message(self.messages[-1], self)
-                yield event
-
-            # Capture the result from the final event if available
-            if isinstance(event, EventLoopStopEvent):
-                agent_result = AgentResult(*event["stop"])
-
-        finally:
-            self.context_manager.apply_management(self)
-            await self.hooks.invoke_callbacks_async(
-                AfterInvocationEvent(agent=self, invocation_state=invocation_state, result=agent_result)
+        while current_messages is not None:
+            before_invocation_event, _interrupts = await self.hooks.invoke_callbacks_async(
+                BeforeInvocationEvent(agent=self, invocation_state=invocation_state, messages=current_messages)
             )
+            current_messages = (
+                before_invocation_event.messages if before_invocation_event.messages is not None else current_messages
+            )
+
+            agent_result: AgentResult | None = None
+            try:
+                yield InitEventLoopEvent()
+
+                await self._append_messages(*current_messages)
+
+                # Execute the event loop cycle with retry logic for context limits
+                events = self._execute_event_loop_cycle(invocation_state)
+                async for event in events:
+                    # Signal from the model provider that the message sent by the user should be redacted,
+                    # likely due to a guardrail.
+                    if (
+                        isinstance(event, ModelStreamChunkEvent)
+                        and event.chunk
+                        and event.chunk.get("redactContent")
+                        and event.chunk["redactContent"].get("redactUserContentMessage")
+                    ):
+                        self.messages[-1]["content"] = self._redact_user_content(
+                            self.messages[-1]["content"],
+                            str(event.chunk["redactContent"]["redactUserContentMessage"]),
+                        )
+                        if self._session_manager:
+                            self._session_manager.redact_latest_message(self.messages[-1], self)
+                    yield event
+
+                # Capture the result from the final event if available
+                if isinstance(event, EventLoopStopEvent):
+                    agent_result = AgentResult(*event["stop"])
+
+            finally:
+                self.context_manager.apply_management(self)
+                after_invocation_event, _interrupts = await self.hooks.invoke_callbacks_async(
+                    AfterInvocationEvent(agent=self, invocation_state=invocation_state, result=agent_result)
+                )
+
+            # Convert resume input to messages for next iteration, or None to stop
+            if after_invocation_event.resume is not None:
+                logger.debug("resume=<True> | hook requested agent resume with new input")
+                # If in interrupt state, process interrupt responses before continuing.
+                self._interrupt_state.resume(after_invocation_event.resume)
+                current_messages = await self._convert_prompt_to_messages(after_invocation_event.resume)
+            else:
+                current_messages = None
 
     async def _execute_event_loop_cycle(self, invocation_state: dict[str, Any]) -> AsyncGenerator[TypedEvent, None]:
         """Execute the event loop cycle with retry logic for context window limits.
@@ -921,25 +966,6 @@ class Agent(AgentBase):
                     return [{"role": "user", "content": cast(list[ContentBlock], prompt)}]
 
         raise ValueError("Input prompt must be of type: `str | list[Contentblock] | Messages | None`.")
-
-    def _initialize_plugins(self) -> None:
-        """Initialize configured plugins after agent construction completes."""
-        for plugin in self._plugins:
-            init_agent = getattr(plugin, "init_agent", None)
-            if init_agent is None:
-                continue
-
-            result = init_agent(self)
-            if inspect.isawaitable(result):
-                self._run_awaitable(result)
-
-    def _run_awaitable(self, awaitable: Awaitable[Any]) -> Any:
-        """Run an awaitable from synchronous code."""
-
-        async def await_result() -> Any:
-            return await awaitable
-
-        return run_async(await_result)
 
     def _start_agent_trace_span(self, messages: Messages) -> trace_api.Span:
         """Starts a trace span for the agent.
