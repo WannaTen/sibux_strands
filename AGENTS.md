@@ -125,11 +125,8 @@ strands-agents/
 │   │
 │   ├── hooks/                            # Event hooks system
 │   │   ├── events.py                     # Hook event definitions
-│   │   └── registry.py                   # Hook registration
-│   │
-│   ├── plugins/                          # Plugin system
-│   │   ├── plugin.py                     # Plugin definition
-│   │   └── registry.py                   # PluginRegistry for tracking plugins
+│   │   ├── registry.py                   # Hook registration
+│   │   └── _type_inference.py            # Event type inference from type hints
 │   │
 │   ├── handlers/                         # Event handlers
 │   │   └── callback_handler.py           # Callback handling
@@ -146,11 +143,7 @@ strands-agents/
 │   │   ├── hooks/                        # Experimental hooks
 │   │   │   ├── events.py
 │   │   │   └── multiagent/
-│   │   ├── steering/                     # Agent steering
-│   │   │   ├── context_providers/
-│   │   │   ├── core/
-│   │   │   └── handlers/
-│   │   └── tools/                        # Experimental tools (deprecation shims)
+│   │   └── tools/                        # Deprecated aliases for strands.tools
 │   │
 │   ├── __init__.py                       # Public API exports
 │   ├── interrupt.py                      # Interrupt handling
@@ -176,7 +169,6 @@ strands-agents/
 │       ├── session/
 │       ├── telemetry/
 │       ├── hooks/
-│       ├── plugins/
 │       ├── handlers/
 │       ├── experimental/
 │       └── utils/
@@ -197,7 +189,6 @@ strands-agents/
 │   ├── tools/                            # Tool system tests
 │   ├── hooks/                            # Hook tests
 │   ├── interrupts/                       # Interrupt tests
-│   ├── steering/                         # Steering tests
 │   ├── bidi/                             # Bidirectional streaming tests
 │   ├── a2a/                              # A2A agent integration tests
 │   ├── test_multiagent_graph.py
