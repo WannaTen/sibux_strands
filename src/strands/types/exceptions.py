@@ -71,6 +71,18 @@ class SessionException(Exception):
     pass
 
 
+class MCPClientInitializationError(Exception):
+    """Exception raised when MCP client initialization or session access fails."""
+
+    pass
+
+
+class ToolProviderException(Exception):
+    """Exception raised when a tool provider fails to start or clean up."""
+
+    pass
+
+
 class StructuredOutputException(Exception):
     """Exception raised when structured output validation fails after maximum retry attempts."""
 
