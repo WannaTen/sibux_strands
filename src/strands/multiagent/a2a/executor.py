@@ -1,3 +1,5 @@
+# mypy: disable-error-code=import-not-found
+
 """Strands Agent executor for the A2A protocol.
 
 This module provides the StrandsA2AExecutor class, which adapts a Strands Agent
@@ -108,7 +110,7 @@ class StrandsA2AExecutor(AgentExecutor):
         """
         task = context.current_task
         if not task:
-            task = new_task(context.message)  # type: ignore
+            task = new_task(context.message)
             await event_queue.enqueue_event(task)
 
         updater = TaskUpdater(event_queue, task.id, task.context_id)

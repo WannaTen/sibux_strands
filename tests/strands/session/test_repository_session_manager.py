@@ -121,7 +121,7 @@ def test_initialize_restores_existing_agent(existing_session_manager, agent):
         context_manager_state=SlidingWindowContextManager().get_state(),
         _internal_state={"interrupt_state": {"interrupts": {}, "context": {"test": "init"}, "activated": False}},
     )
-    session_manager.session_repository.create_agent("test-session", session_agent)
+    existing_session_manager.session_repository.create_agent("test-session", session_agent)
 
     # Create some messages
     message = SessionMessage(
@@ -472,16 +472,16 @@ def test_initialize_bidi_agent_restores_existing(existing_session_manager, mock_
         state={"restored": "state"},
         context_manager_state={},  # Empty for BidiAgent
     )
-    session_manager.session_repository.create_agent("test-session", session_agent)
+    existing_session_manager.session_repository.create_agent("test-session", session_agent)
 
     # Add messages
     msg1 = SessionMessage.from_message({"role": "user", "content": [{"text": "Message 1"}]}, 0)
     msg2 = SessionMessage.from_message({"role": "assistant", "content": [{"text": "Response 1"}]}, 1)
-    session_manager.session_repository.create_message("test-session", "bidi-agent-1", msg1)
-    session_manager.session_repository.create_message("test-session", "bidi-agent-1", msg2)
+    existing_session_manager.session_repository.create_message("test-session", "bidi-agent-1", msg1)
+    existing_session_manager.session_repository.create_message("test-session", "bidi-agent-1", msg2)
 
     # Initialize agent
-    session_manager.initialize_bidi_agent(mock_bidi_agent)
+    existing_session_manager.initialize_bidi_agent(mock_bidi_agent)
 
     # Verify state restored
     assert mock_bidi_agent.state.get() == {"restored": "state"}
@@ -704,8 +704,8 @@ def test_sync_agent_calls_update_when_internal_state_changed(mock_repository):
     assert len(update_agent_calls) == 1
 
 
-def test_sync_agent_calls_update_when_conversation_manager_state_changed(mock_repository):
-    """Test that sync_agent() calls update_agent() when conversation manager state changed."""
+def test_sync_agent_calls_update_when_context_manager_state_changed(mock_repository):
+    """Test that sync_agent() calls update_agent() when context manager state changed."""
     session_manager = RepositorySessionManager(session_id="test-session", session_repository=mock_repository)
 
     # Create and initialize agent
@@ -725,10 +725,10 @@ def test_sync_agent_calls_update_when_conversation_manager_state_changed(mock_re
     session_manager.sync_agent(agent)
     update_agent_calls.clear()
 
-    # Modify conversation manager state
-    agent.conversation_manager.removed_message_count = 5
+    # Modify context manager state
+    agent.context_manager.removed_message_count = 5
 
-    # Sync should call update_agent because conversation manager state changed
+    # Sync should call update_agent because context manager state changed
     session_manager.sync_agent(agent)
     assert len(update_agent_calls) == 1
 

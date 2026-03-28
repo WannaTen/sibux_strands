@@ -1,3 +1,5 @@
+# mypy: disable-error-code=import-not-found
+
 """MCP tool wrapper that adapts MCP tools to the AgentTool interface."""
 
 from typing import TYPE_CHECKING, Any

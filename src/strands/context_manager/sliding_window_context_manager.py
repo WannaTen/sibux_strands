@@ -204,6 +204,17 @@ class SlidingWindowContextManager(ContextManager):
             else:
                 break
         else:
+            if (
+                oldest_message_idx_with_tool_results is not None
+                and self.should_truncate_results
+                and self._replace_tool_results_with_placeholder(messages, oldest_message_idx_with_tool_results)
+            ):
+                logger.debug(
+                    "message_index=<%s> | replaced tool result with placeholder",
+                    oldest_message_idx_with_tool_results,
+                )
+                return
+
             # If we didn't find a valid trim_index, then we throw
             raise ContextWindowOverflowException("Unable to trim conversation context!") from e
 
@@ -291,6 +302,55 @@ class SlidingWindowContextManager(ContextManager):
             message["content"] = new_content
 
         return changes_made
+
+    def _replace_tool_results_with_placeholder(self, messages: Messages, msg_idx: int) -> bool:
+        """Replace tool results with a minimal placeholder when no further trimming is possible.
+
+        Args:
+            messages: The conversation message history.
+            msg_idx: Index of the message containing tool results to replace.
+
+        Returns:
+            True if any tool result was replaced, False otherwise.
+        """
+        if msg_idx >= len(messages) or msg_idx < 0:
+            return False
+
+        tool_result_too_large_message = "The tool result was too large!"
+        message = messages[msg_idx]
+        placeholder_replaced = False
+        fallback_content: list[ContentBlock] = []
+
+        for content in message.get("content", []):
+            if "toolResult" not in content:
+                fallback_content.append(content)
+                continue
+
+            tool_result: Any = content["toolResult"]
+            tool_result_content_text = next(
+                (item["text"] for item in tool_result.get("content", []) if "text" in item),
+                "",
+            )
+            if tool_result.get("status") == "error" and tool_result_content_text == tool_result_too_large_message:
+                fallback_content.append(content)
+                continue
+
+            fallback_content.append(
+                {
+                    "toolResult": {
+                        "toolUseId": str(tool_result["toolUseId"]),
+                        **{k: v for k, v in tool_result.items() if k not in ("toolUseId", "content", "status")},
+                        "content": [{"text": tool_result_too_large_message}],
+                        "status": "error",
+                    }
+                }
+            )
+            placeholder_replaced = True
+
+        if placeholder_replaced:
+            message["content"] = fallback_content
+
+        return placeholder_replaced
 
     def _find_oldest_message_with_tool_results(self, messages: Messages) -> int | None:
         """Find the index of the oldest message containing tool results.

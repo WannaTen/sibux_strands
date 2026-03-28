@@ -1,3 +1,5 @@
+# mypy: disable-error-code=import-not-found
+
 """Model Context Protocol (MCP) server connection management module.
 
 This module provides the MCPClient class which handles connections to MCP servers.
@@ -880,7 +882,7 @@ class MCPClient(ToolProvider):
                 self._log_debug_with_thread("embedded resource blob with non-textual/unknown mimeType - dropping")
                 return None
 
-            return None  # type: ignore[unreachable]  # Defensive: future MCP resource types
+            return None
         else:
             self._log_debug_with_thread("unhandled content type: %s - dropping content", content.__class__.__name__)
             return None

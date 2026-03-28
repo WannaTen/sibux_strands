@@ -9,6 +9,7 @@ Example:
 
 import json
 import random
+import weakref
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -35,7 +36,19 @@ class _ToolCaller:
         """
         # WARNING: Do not add any other member variables or methods as this could result in a name conflict with
         #          agent tools and thus break their execution.
-        self._agent = agent
+        self._agent_ref = weakref.ref(agent)
+
+    @property
+    def _agent(self) -> "Agent":
+        """Return the live agent instance for this tool caller.
+
+        Raises:
+            ReferenceError: If the agent has already been garbage collected.
+        """
+        agent = self._agent_ref()
+        if agent is None:
+            raise ReferenceError("Agent has been garbage collected")
+        return agent
 
     def __getattr__(self, name: str) -> Callable[..., Any]:
         """Call tool as a function.

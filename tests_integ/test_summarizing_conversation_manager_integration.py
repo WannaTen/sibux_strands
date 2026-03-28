@@ -17,10 +17,10 @@ import os
 
 import pytest
 from pydantic import BaseModel
-from strands.agent.conversation_manager import SummarizingConversationManager
 
 import strands
 from strands import Agent
+from strands.context_manager import SummarizingContextManager
 from strands.models.anthropic import AnthropicModel
 from tests_integ.models import providers
 
@@ -132,7 +132,7 @@ def test_summarization_with_context_overflow(model):
     # Create agent with very aggressive summarization settings and pre-built conversation
     agent = Agent(
         model=model,
-        conversation_manager=SummarizingConversationManager(
+        context_manager=SummarizingContextManager(
             summary_ratio=0.5,  # Summarize 50% of messages
             preserve_recent_messages=2,  # Keep only 2 recent messages
         ),
@@ -148,7 +148,7 @@ def test_summarization_with_context_overflow(model):
     messages_before_summary = agent.messages[-2:].copy()
 
     # Now manually trigger context reduction to test summarization
-    agent.conversation_manager.reduce_context(agent)
+    agent.context_manager.reduce_context(agent)
 
     # Verify summarization occurred
     assert len(agent.messages) < initial_message_count
@@ -189,7 +189,7 @@ def test_tool_preservation_during_summarization(model, tools):
     agent = Agent(
         model=model,
         tools=tools,
-        conversation_manager=SummarizingConversationManager(
+        context_manager=SummarizingContextManager(
             summary_ratio=0.6,  # Aggressive summarization
             preserve_recent_messages=3,
         ),
@@ -265,7 +265,7 @@ def test_tool_preservation_during_summarization(model, tools):
     agent.messages.extend(tool_conversation_data)
 
     # Force summarization
-    agent.conversation_manager.reduce_context(agent)
+    agent.context_manager.reduce_context(agent)
 
     # Verify tool pairs are still balanced after summarization
     post_summary_tool_use_count = 0
@@ -309,7 +309,7 @@ def test_dedicated_summarization_agent(model, summarization_model):
     # Create main agent with dedicated summarization agent
     agent = Agent(
         model=model,
-        conversation_manager=SummarizingConversationManager(
+        context_manager=SummarizingContextManager(
             summary_ratio=0.5,
             preserve_recent_messages=2,
             summarization_agent=summarization_agent,
@@ -356,7 +356,7 @@ def test_dedicated_summarization_agent(model, summarization_model):
 
     # Force summarization
     original_length = len(agent.messages)
-    agent.conversation_manager.reduce_context(agent)
+    agent.context_manager.reduce_context(agent)
 
     # Verify summarization occurred
     assert len(agent.messages) < original_length
@@ -401,8 +401,8 @@ def test_summarization_with_tool_messages_and_no_tools():
         ],
     )
 
-    conversation_manager = SummarizingConversationManager(summary_ratio=1, preserve_recent_messages=2)
-    conversation_manager.reduce_context(agent)
+    context_manager = SummarizingContextManager(summary_ratio=1, preserve_recent_messages=2)
+    context_manager.reduce_context(agent)
 
     assert len(agent.tool_names) == 0
     assert len(agent.messages) == 3
@@ -434,7 +434,7 @@ def test_dedicated_summarization_agent_with_structured_output(model, summarizati
 
     agent = Agent(
         model=model,
-        conversation_manager=SummarizingConversationManager(
+        context_manager=SummarizingContextManager(
             summary_ratio=0.5,
             preserve_recent_messages=2,
             summarization_agent=summarization_agent,
@@ -457,7 +457,7 @@ def test_dedicated_summarization_agent_with_structured_output(model, summarizati
     )
 
     original_length = len(agent.messages)
-    agent.conversation_manager.reduce_context(agent)
+    agent.context_manager.reduce_context(agent)
 
     assert len(agent.messages) < original_length
 

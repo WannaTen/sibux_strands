@@ -70,7 +70,7 @@ async def test_concurrent_executor_interrupt(
 
 @pytest.mark.asyncio
 async def test_concurrent_executor_reraises_exceptions(
-    executor, agent, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context, alist
+    executor, agent, tool_results, cycle_trace, cycle_span, invocation_state, alist
 ):
     """Test that hook re-raised exceptions propagate and cancel remaining tasks."""
 
@@ -85,9 +85,7 @@ async def test_concurrent_executor_reraises_exceptions(
         {"name": "slow_tool", "toolUseId": "2", "input": {}},
     ]
 
-    stream = executor._execute(
-        agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context
-    )
+    stream = executor._execute(agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state)
 
     with pytest.raises(RuntimeError, match="Tool error"):
         await alist(stream)
