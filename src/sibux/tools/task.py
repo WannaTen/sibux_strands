@@ -75,7 +75,9 @@ def task(agent: str, prompt: str, description: str) -> dict[str, Any]:
     logger.debug("agent=<%s>, description=<%s> | delegating task to subagent", agent, description)
 
     try:
-        sub_agent = create_agent(cfg, agent_config)
+        # Subagents remain stateless in Phase 2 and must not inherit the
+        # primary agent's session wiring.
+        sub_agent = create_agent(config=cfg, agent_config=agent_config)
         result = sub_agent(prompt)
         response_text = result.message if hasattr(result, "message") else str(result)
         return {"status": "success", "content": [{"text": response_text}]}

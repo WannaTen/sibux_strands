@@ -13,12 +13,21 @@ from ..tools import ALL_TOOLS, set_task_config
 from .system_prompt import build_system_prompt
 
 if TYPE_CHECKING:
+    from strands.session import SessionManager
+
     from ..config.config import AgentConfig, Config
 
 logger = logging.getLogger(__name__)
 
 
-def create(config: Config, agent_config: AgentConfig) -> strands.Agent:
+def create(
+    config: Config,
+    agent_config: AgentConfig,
+    *,
+    session_manager: SessionManager | None = None,
+    agent_id: str | None = None,
+    context_manager: Any | None = None,
+) -> strands.Agent:
     """Build a Strands Agent from an AgentConfig.
 
     Resolves the model, filters tools by permission rules, constructs the
@@ -27,10 +36,20 @@ def create(config: Config, agent_config: AgentConfig) -> strands.Agent:
     Args:
         config: Top-level application configuration.
         agent_config: Configuration for the specific agent to create.
+        session_manager: Optional session manager for persistent primary-agent
+            flows.
+        agent_id: Optional stable agent identifier for session-backed agents.
+        context_manager: Optional Strands context manager override.
 
     Returns:
         A configured Strands Agent ready to be called.
+
+    Raises:
+        ValueError: If a session manager is provided without a stable agent ID.
     """
+    if session_manager is not None and agent_id is None:
+        raise ValueError("agent_id is required when session_manager is provided")
+
     # Inject config into task tool before building the agent
     set_task_config(config)
 
@@ -40,17 +59,29 @@ def create(config: Config, agent_config: AgentConfig) -> strands.Agent:
 
     tool_names = [getattr(t, "__name__", str(t)) for t in tools]
     logger.debug(
-        "agent=<%s>, model=<%s>, tools=<%s> | creating agent",
+        "agent=<%s>, agent_id=<%s>, has_session_manager=<%s>, model=<%s>, tools=<%s> | creating agent",
         agent_config.name,
+        agent_id,
+        session_manager is not None,
         getattr(model, "model_id", model),
         tool_names,
     )
 
+    agent_kwargs: dict[str, Any] = {
+        "model": model,
+        "tools": tools,
+        "system_prompt": system_prompt,
+        "callback_handler": PrintingCallbackHandler(),
+    }
+    if session_manager is not None:
+        agent_kwargs["session_manager"] = session_manager
+    if agent_id is not None:
+        agent_kwargs["agent_id"] = agent_id
+    if context_manager is not None:
+        agent_kwargs["context_manager"] = context_manager
+
     return strands.Agent(
-        model=model,
-        tools=tools,
-        system_prompt=system_prompt,
-        callback_handler=PrintingCallbackHandler(),
+        **agent_kwargs,
     )
 
 

@@ -15,6 +15,9 @@ src/sibux/
 ├── config/
 │   ├── config.py           # Pydantic config models + load_config()
 │   └── defaults.py         # Built-in agent definitions
+├── session/
+│   ├── __init__.py         # Session lifecycle exports
+│   └── service.py          # Project-local session create/resume logic
 ├── permission/
 │   └── permission.py       # Last-match-wins rule evaluation + tool filtering
 ├── tools/

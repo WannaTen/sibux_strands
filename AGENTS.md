@@ -152,6 +152,17 @@ strands-agents/
 │   ├── _identifier.py                    # ID generation
 │   └── py.typed                          # PEP 561 marker
 │
+├── src/sibux/                            # Sibux coding agent implementation
+│   ├── AGENTS.md                         # Sibux-specific instructions
+│   ├── README.md                         # Sibux package notes
+│   ├── agent/                            # Agent assembly and prompts
+│   ├── config/                           # Config schema and loading
+│   ├── session/                          # Project-local session lifecycle
+│   ├── permission/                       # Tool permission filtering
+│   ├── tools/                            # Sibux tool implementations
+│   ├── __init__.py                       # Package marker
+│   └── main.py                           # CLI entry point
+│
 ├── tests/                                # Unit tests (mirrors src/)
 │   ├── conftest.py                       # Pytest fixtures
 │   ├── fixtures/                         # Test fixtures
@@ -172,6 +183,12 @@ strands-agents/
 │       ├── handlers/
 │       ├── experimental/
 │       └── utils/
+│   └── sibux/                            # Tests mirror src/sibux/
+│       ├── agent/
+│       ├── config/
+│       ├── permission/
+│       ├── session/
+│       └── tools/
 │
 ├── tests_integ/                          # Integration tests
 │   ├── conftest.py
@@ -204,7 +221,11 @@ strands-agents/
 │   ├── MCP_CLIENT_ARCHITECTURE.md        # MCP threading architecture
 │   ├── STREAMING_EVENTS.md               # Streaming chunk and event reference
 │   ├── arch/                             # Architecture notes
-│   └── impl/                             # Implementation notes
+│   └── impl/                             # Implementation planning notes
+│       ├── implementation-plan.md        # Cross-phase roadmap
+│       ├── phase2-detailed-plan.md       # Phase 2 detailed implementation draft
+│       ├── phase2-t0-design-closure.md   # Phase 2 design closure decisions
+│       └── phase2-task-cards.md          # Phase 2 handoff-ready task cards
 │
 ├── scripts/                              # Developer workflow scripts
 │   └── setup-dev.sh                      # One-command local environment setup

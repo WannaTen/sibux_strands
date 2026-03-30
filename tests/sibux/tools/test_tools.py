@@ -1,10 +1,13 @@
 """Tests for the built-in tools."""
 
+import importlib
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
+from sibux.config.config import Config
+from sibux.config.defaults import default_config_dict
 from sibux.tools.bash import bash
 from sibux.tools.edit import edit
 from sibux.tools.glob_tool import glob_tool
@@ -12,6 +15,8 @@ from sibux.tools.grep import grep
 from sibux.tools.read import read
 from sibux.tools.truncation import MAX_BYTES, MAX_LINES, truncate
 from sibux.tools.write import write
+
+task_module = importlib.import_module("sibux.tools.task")
 
 
 class TestTruncation:
@@ -192,3 +197,29 @@ class TestGrep:
         text = result["content"][0]["text"]
         assert "a.py" in text
         assert "b.txt" not in text
+
+
+class TestTask:
+    def test_subagent_creation_stays_stateless(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        config = Config.model_validate(default_config_dict())
+        monkeypatch.setattr(task_module, "_task_config", config)
+
+        class FakeResult:
+            message = "subagent complete"
+
+        class FakeSubAgent:
+            def __call__(self, prompt: str) -> FakeResult:
+                assert prompt == "inspect this"
+                return FakeResult()
+
+        with patch("sibux.agent.agent_factory.create", return_value=FakeSubAgent()) as create_mock:
+            result = task_module.task.__wrapped__("general", "inspect this", "delegate work")  # type: ignore[attr-defined]
+
+        assert result["status"] == "success"
+        assert result["content"][0]["text"] == "subagent complete"
+        call_kwargs = create_mock.call_args.kwargs
+        assert call_kwargs["config"] is config
+        assert call_kwargs["agent_config"] is config.agents["general"]
+        assert "session_manager" not in call_kwargs
+        assert "agent_id" not in call_kwargs
+        assert "context_manager" not in call_kwargs

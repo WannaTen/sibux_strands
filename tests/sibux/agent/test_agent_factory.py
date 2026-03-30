@@ -1,9 +1,11 @@
 """Tests for the agent factory and system prompt builder."""
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
+from sibux.agent.agent_factory import create
 from sibux.agent.system_prompt import _build_environment_section, build_system_prompt
 from sibux.config.config import AgentConfig, Config
 from sibux.config.defaults import default_config_dict
@@ -62,6 +64,63 @@ class TestAgentFactory:
         d["default_model"] = "opus"
         d["provider"] = {"anthropic": {"api_key": "test-key"}}
         return Config.model_validate(d)
+
+    def test_create_passes_session_seam_to_primary_agent(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        config = Config.model_validate(default_config_dict())
+        agent_cfg = config.agents["build"]
+        session_manager = object()
+        context_manager = object()
+
+        with patch("sibux.agent.agent_factory.strands.Agent") as agent_cls:
+            built_agent = object()
+            agent_cls.return_value = built_agent
+
+            result = create(
+                config,
+                agent_cfg,
+                session_manager=session_manager,
+                agent_id="build",
+                context_manager=context_manager,
+            )
+
+        assert result is built_agent
+        call_kwargs = agent_cls.call_args.kwargs
+        assert call_kwargs["session_manager"] is session_manager
+        assert call_kwargs["agent_id"] == "build"
+        assert call_kwargs["context_manager"] is context_manager
+
+    def test_create_without_session_seam_keeps_default_stateless_path(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        config = Config.model_validate(default_config_dict())
+        agent_cfg = config.agents["build"]
+
+        with patch("sibux.agent.agent_factory.strands.Agent") as agent_cls:
+            create(config, agent_cfg)
+
+        call_kwargs = agent_cls.call_args.kwargs
+        assert "session_manager" not in call_kwargs
+        assert "agent_id" not in call_kwargs
+        assert "context_manager" not in call_kwargs
+
+    def test_create_rejects_session_manager_without_agent_id(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        config = Config.model_validate(default_config_dict())
+        agent_cfg = config.agents["build"]
+
+        with patch("sibux.agent.agent_factory.strands.Agent") as agent_cls:
+            with pytest.raises(ValueError, match="agent_id is required when session_manager is provided"):
+                create(
+                    config,
+                    agent_cfg,
+                    session_manager=object(),
+                )
+
+        agent_cls.assert_not_called()
 
     def test_explore_agent_missing_task_tool(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Explore agent must not receive the task tool."""

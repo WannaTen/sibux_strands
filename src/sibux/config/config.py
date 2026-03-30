@@ -12,9 +12,11 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from strands import _identifier
 
 from ..permission.permission import PermissionRule
 
@@ -63,6 +65,36 @@ class ModelConfig(BaseModel):
     extra: dict[str, Any] = Field(default_factory=dict)
 
 
+class SessionConfig(BaseModel):
+    """Configuration for session persistence behavior.
+
+    Attributes:
+        storage_dir: Project-relative directory used by the session manager.
+        resume: Whether to resume the last compatible session or always start new.
+    """
+
+    storage_dir: str = ".sibux/session/strands"
+    resume: Literal["last", "new"] = "last"
+
+
+def validate_agent_name(name: str) -> str:
+    """Validate an agent name for use as a stable session agent identifier.
+
+    Args:
+        name: Configured agent name.
+
+    Returns:
+        Validated agent name.
+
+    Raises:
+        ValueError: If the name is empty, only whitespace, or contains path separators.
+    """
+    if not name or not name.strip():
+        raise ValueError("agent name must be a non-empty, non-whitespace string")
+
+    return _identifier.validate(name, _identifier.Identifier.AGENT)
+
+
 class AgentConfig(BaseModel):
     """Configuration for a named agent.
 
@@ -87,6 +119,12 @@ class AgentConfig(BaseModel):
     temperature: float | None = None
     max_tokens: int | None = None
 
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, name: str) -> str:
+        """Validate the configured agent name."""
+        return validate_agent_name(name)
+
 
 class Config(BaseModel):
     """Top-level application configuration.
@@ -102,6 +140,7 @@ class Config(BaseModel):
         instructions: List of file paths whose contents are appended to the
             system prompt as project-level instructions.
         permission: Global permission rules applied before agent-level rules.
+        session: Session persistence configuration.
     """
 
     provider: dict[str, ProviderConfig] = Field(default_factory=dict)
@@ -111,6 +150,7 @@ class Config(BaseModel):
     default_model: str | None = None
     instructions: list[str] = Field(default_factory=list)
     permission: list[PermissionRule] = Field(default_factory=list)
+    session: SessionConfig = Field(default_factory=SessionConfig)
 
 
 def load_config(cwd: str | None = None) -> Config:
@@ -140,8 +180,35 @@ def load_config(cwd: str | None = None) -> Config:
     return Config.model_validate(merged)
 
 
-def _find_project_config(start: str) -> Path | None:
-    """Walk up the directory tree looking for a .sibux/config.json file.
+def find_project_root(start: str | Path | None = None) -> Path:
+    """Find the nearest Sibux project root from a starting location.
+
+    Args:
+        start: Directory to start searching from. Defaults to the current
+            working directory.
+
+    Returns:
+        Resolved project root when ``.sibux/config.json`` is found in the
+        current directory or one of its parents. Otherwise, the resolved
+        starting directory.
+    """
+    current = Path(start or os.getcwd()).resolve()
+    if current.exists() and current.is_file():
+        current = current.parent
+
+    fallback = current
+    while True:
+        candidate = current / _PROJECT_CONFIG_DIR / _PROJECT_CONFIG_NAME
+        if candidate.exists():
+            return current
+        parent = current.parent
+        if parent == current:
+            return fallback
+        current = parent
+
+
+def _find_project_config(start: str | Path | None = None) -> Path | None:
+    """Return the nearest project config file if it exists.
 
     Args:
         start: Directory to start searching from.
@@ -149,15 +216,12 @@ def _find_project_config(start: str) -> Path | None:
     Returns:
         Path to the config file, or None if not found.
     """
-    current = Path(start).resolve()
-    while True:
-        candidate = current / _PROJECT_CONFIG_DIR / _PROJECT_CONFIG_NAME
-        if candidate.exists():
-            return candidate
-        parent = current.parent
-        if parent == current:
-            return None
-        current = parent
+    project_root = find_project_root(start)
+    candidate = project_root / _PROJECT_CONFIG_DIR / _PROJECT_CONFIG_NAME
+    if candidate.exists():
+        return candidate
+
+    return None
 
 
 def _load_json(path: Path) -> dict[str, Any]:

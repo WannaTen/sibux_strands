@@ -35,6 +35,10 @@ def default_config_dict() -> dict[str, Any]:
         "model": {},
         "instructions": [],
         "permission": [],
+        "session": {
+            "storage_dir": ".sibux/session/strands",
+            "resume": "last",
+        },
         "default_model": None,
         "agents": {
             "build": {
