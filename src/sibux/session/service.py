@@ -34,6 +34,8 @@ class ActiveSession:
         state_file: Path to the Sibux session state file.
         resumed: Whether this session was resumed from prior state.
         session_manager: Strands session manager for the active session.
+        restore_error: Human-readable restore failure reason when session
+            creation fell back to a new session.
     """
 
     session_id: str
@@ -43,6 +45,7 @@ class ActiveSession:
     state_file: Path
     resumed: bool
     session_manager: FileSessionManager
+    restore_error: str | None = None
 
 
 @dataclass
@@ -110,7 +113,10 @@ class SessionService:
             logger.warning(
                 "path=<%s>, error=<%s> | failed to load session state, creating new session", self._state_file, exc
             )
-            return self._new_session(agent_name=validated_agent_name)
+            return self._new_session(
+                agent_name=validated_agent_name,
+                restore_error=f"failed to load previous session state: {exc}",
+            )
 
         if state is None:
             logger.debug("agent=<%s> | no session state found, creating new session", validated_agent_name)
@@ -131,7 +137,10 @@ class SessionService:
                 validated_agent_name,
                 state.current_session_id,
             )
-            return self._new_session(agent_name=validated_agent_name)
+            return self._new_session(
+                agent_name=validated_agent_name,
+                restore_error=f"previous session '{state.current_session_id}' is missing on disk",
+            )
 
         try:
             active_session = self._build_active_session(
@@ -146,7 +155,10 @@ class SessionService:
                 state.current_session_id,
                 exc,
             )
-            return self._new_session(agent_name=validated_agent_name)
+            return self._new_session(
+                agent_name=validated_agent_name,
+                restore_error=f"failed to restore previous session '{state.current_session_id}': {exc}",
+            )
 
         self._set_current(active_session)
         logger.debug("agent=<%s>, session_id=<%s> | resumed session", validated_agent_name, active_session.session_id)
@@ -163,11 +175,12 @@ class SessionService:
         """
         return self._new_session(agent_name=self._validate_agent_name(agent_name))
 
-    def _new_session(self, *, agent_name: str) -> ActiveSession:
+    def _new_session(self, *, agent_name: str, restore_error: str | None = None) -> ActiveSession:
         active_session = self._build_active_session(
             session_id=self._generate_session_id(),
             agent_name=agent_name,
             resumed=False,
+            restore_error=restore_error,
         )
         self._set_current(active_session)
         logger.debug("agent=<%s>, session_id=<%s> | created new session", agent_name, active_session.session_id)
@@ -177,7 +190,14 @@ class SessionService:
         """Return the currently active session for this service instance."""
         return self._current
 
-    def _build_active_session(self, *, session_id: str, agent_name: str, resumed: bool) -> ActiveSession:
+    def _build_active_session(
+        self,
+        *,
+        session_id: str,
+        agent_name: str,
+        resumed: bool,
+        restore_error: str | None = None,
+    ) -> ActiveSession:
         session_manager = FileSessionManager(session_id=session_id, storage_dir=str(self._storage_dir))
         return ActiveSession(
             session_id=session_id,
@@ -187,6 +207,7 @@ class SessionService:
             state_file=self._state_file,
             resumed=resumed,
             session_manager=session_manager,
+            restore_error=restore_error,
         )
 
     def _set_current(self, active_session: ActiveSession) -> None:

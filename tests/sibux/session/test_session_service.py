@@ -31,6 +31,7 @@ class TestSessionService:
         assert active_session.storage_dir.is_relative_to((tmp_path / ".sibux" / "session").resolve())
         assert active_session.state_file.is_relative_to((tmp_path / ".sibux" / "session").resolve())
         assert service.current() is active_session
+        assert active_session.restore_error is None
 
         state = json.loads(active_session.state_file.read_text(encoding="utf-8"))
         assert state["version"] == 1
@@ -77,6 +78,7 @@ class TestSessionService:
         assert resumed_session.agent_id == "build"
         assert resumed_session.resumed is True
         assert service.current() is resumed_session
+        assert resumed_session.restore_error is None
 
     def test_create_or_resume_creates_new_session_for_other_agent(self, tmp_path: Path) -> None:
         first_session = SessionService(project_root=tmp_path).create_or_resume(agent_name="build")
@@ -87,6 +89,7 @@ class TestSessionService:
         assert other_agent_session.agent_name == "plan"
         assert other_agent_session.agent_id == "plan"
         assert other_agent_session.resumed is False
+        assert other_agent_session.restore_error is None
 
         state_file = tmp_path / ".sibux" / "session" / "state.json"
         state = json.loads(state_file.read_text(encoding="utf-8"))
@@ -101,6 +104,7 @@ class TestSessionService:
 
         assert next_session.session_id != first_session.session_id
         assert next_session.resumed is False
+        assert next_session.restore_error == f"previous session '{first_session.session_id}' is missing on disk"
 
     def test_new_session_always_generates_new_session_id(self, tmp_path: Path) -> None:
         service = SessionService(project_root=tmp_path)
@@ -166,6 +170,7 @@ class TestSessionService:
 
         assert active_session.session_id.startswith("sibux_")
         assert active_session.resumed is False
+        assert active_session.restore_error is not None
 
     def test_create_or_resume_falls_back_to_new_session_when_existing_session_is_corrupted(
         self, tmp_path: Path
@@ -193,6 +198,7 @@ class TestSessionService:
 
         assert active_session.session_id != broken_session_id
         assert active_session.resumed is False
+        assert active_session.restore_error is not None
 
     def test_create_or_resume_falls_back_to_new_session_when_state_version_mismatches(self, tmp_path: Path) -> None:
         first_session = SessionService(project_root=tmp_path).create_or_resume(agent_name="build")
@@ -206,4 +212,5 @@ class TestSessionService:
 
         assert next_session.session_id != first_session.session_id
         assert next_session.resumed is False
+        assert next_session.restore_error is not None
         assert next_state["version"] == 1
