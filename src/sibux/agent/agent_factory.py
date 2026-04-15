@@ -3,19 +3,23 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 import strands
 from strands.handlers.callback_handler import PrintingCallbackHandler
 
+from ..hooks.types import SystemPromptTransformProvider
 from ..permission.permission import filter_tools
 from ..tools import ALL_TOOLS, set_task_config
 from .system_prompt import build_system_prompt
 
 if TYPE_CHECKING:
+    from strands.hooks import HookProvider
     from strands.session import SessionManager
 
     from ..config.config import AgentConfig, Config
+    from ..hooks.types import SystemPromptTransform
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +31,7 @@ def create(
     session_manager: SessionManager | None = None,
     agent_id: str | None = None,
     context_manager: Any | None = None,
+    hooks: list[HookProvider] | None = None,
 ) -> strands.Agent:
     """Build a Strands Agent from an AgentConfig.
 
@@ -40,6 +45,9 @@ def create(
             flows.
         agent_id: Optional stable agent identifier for session-backed agents.
         context_manager: Optional Strands context manager override.
+        hooks: Optional Strands hook providers to register on the created
+            agent. Sibux providers may also contribute system prompt
+            transforms before agent construction.
 
     Returns:
         A configured Strands Agent ready to be called.
@@ -56,13 +64,16 @@ def create(
     model = _resolve_model(config, agent_config)
     tools = filter_tools(ALL_TOOLS, agent_config.permission)
     system_prompt = build_system_prompt(agent_config, config)
+    hook_list = list(hooks or [])
+    system_prompt = _apply_system_prompt_transforms(system_prompt, hook_list)
 
     tool_names = [getattr(t, "__name__", str(t)) for t in tools]
     logger.debug(
-        "agent=<%s>, agent_id=<%s>, has_session_manager=<%s>, model=<%s>, tools=<%s> | creating agent",
+        "agent=<%s>, agent_id=<%s>, has_session_manager=<%s>, has_hooks=<%s>, model=<%s>, tools=<%s> | creating agent",
         agent_config.name,
         agent_id,
         session_manager is not None,
+        bool(hook_list),
         getattr(model, "model_id", model),
         tool_names,
     )
@@ -79,10 +90,38 @@ def create(
         agent_kwargs["agent_id"] = agent_id
     if context_manager is not None:
         agent_kwargs["context_manager"] = context_manager
+    if hook_list:
+        agent_kwargs["hooks"] = hook_list
 
     return strands.Agent(
         **agent_kwargs,
     )
+
+
+def _apply_system_prompt_transforms(system_prompt: str, hooks: Sequence[HookProvider]) -> str:
+    """Apply registered system prompt transforms in order.
+
+    Args:
+        system_prompt: The prompt built from Sibux configuration and
+            environment context.
+        hooks: Hook providers passed to the agent factory.
+
+    Returns:
+        The transformed system prompt.
+    """
+    transformed_prompt = system_prompt
+    for transform in _iter_system_prompt_transforms(hooks):
+        transformed_prompt = transform(transformed_prompt)
+    return transformed_prompt
+
+
+def _iter_system_prompt_transforms(hooks: Sequence[HookProvider]) -> list[SystemPromptTransform]:
+    """Collect system prompt transforms exposed by hook providers."""
+    transforms: list[SystemPromptTransform] = []
+    for hook in hooks:
+        if isinstance(hook, SystemPromptTransformProvider):
+            transforms.extend(hook.get_system_prompt_transforms())
+    return transforms
 
 
 def _resolve_model(config: Config, agent_config: AgentConfig) -> Any:

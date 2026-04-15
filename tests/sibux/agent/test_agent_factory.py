@@ -9,6 +9,7 @@ from sibux.agent.agent_factory import create
 from sibux.agent.system_prompt import _build_environment_section, build_system_prompt
 from sibux.config.config import AgentConfig, Config
 from sibux.config.defaults import default_config_dict
+from sibux.hooks import SibuxHookProvider
 
 
 class TestSystemPrompt:
@@ -104,6 +105,36 @@ class TestAgentFactory:
         assert "session_manager" not in call_kwargs
         assert "agent_id" not in call_kwargs
         assert "context_manager" not in call_kwargs
+        assert "hooks" not in call_kwargs
+
+    def test_create_applies_system_prompt_transforms(self) -> None:
+        config = Config.model_validate(default_config_dict())
+        agent_cfg = config.agents["build"]
+        hook = SibuxHookProvider(system_prompt_transforms=[lambda prompt: f"{prompt}\n\nHooked prompt"])
+
+        with (
+            patch("sibux.agent.agent_factory.build_system_prompt", return_value="Base prompt"),
+            patch("sibux.agent.agent_factory.strands.Agent") as agent_cls,
+        ):
+            create(config, agent_cfg, hooks=[hook])
+
+        call_kwargs = agent_cls.call_args.kwargs
+        assert call_kwargs["system_prompt"] == "Base prompt\n\nHooked prompt"
+        assert call_kwargs["hooks"] == [hook]
+
+    def test_create_without_hooks_preserves_system_prompt(self) -> None:
+        config = Config.model_validate(default_config_dict())
+        agent_cfg = config.agents["build"]
+
+        with (
+            patch("sibux.agent.agent_factory.build_system_prompt", return_value="Base prompt"),
+            patch("sibux.agent.agent_factory.strands.Agent") as agent_cls,
+        ):
+            create(config, agent_cfg)
+
+        call_kwargs = agent_cls.call_args.kwargs
+        assert call_kwargs["system_prompt"] == "Base prompt"
+        assert "hooks" not in call_kwargs
 
     def test_create_rejects_session_manager_without_agent_id(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

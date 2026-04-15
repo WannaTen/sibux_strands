@@ -15,6 +15,10 @@ src/sibux/
 ├── config/
 │   ├── config.py           # Pydantic config models + load_config()
 │   └── defaults.py         # Built-in agent definitions
+├── hooks/
+│   ├── __init__.py         # Sibux hook exports
+│   ├── provider.py         # SibuxHookProvider implementation
+│   └── types.py            # Hook-related shared types
 ├── session/
 │   ├── __init__.py         # Session lifecycle exports
 │   └── service.py          # Project-local session create/resume logic
