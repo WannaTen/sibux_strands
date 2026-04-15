@@ -157,6 +157,7 @@ strands-agents/
 │   ├── README.md                         # Sibux package notes
 │   ├── agent/                            # Agent assembly and prompts
 │   ├── config/                           # Config schema and loading
+│   ├── event/                            # Session/global event bus primitives
 │   ├── hooks/                            # Sibux hook providers and prompt transforms
 │   ├── session/                          # Project-local session lifecycle
 │   ├── permission/                       # Tool permission filtering
@@ -187,6 +188,7 @@ strands-agents/
 │   └── sibux/                            # Tests mirror src/sibux/
 │       ├── agent/
 │       ├── config/
+│       ├── event/
 │       ├── hooks/
 │       ├── permission/
 │       ├── session/

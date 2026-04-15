@@ -15,6 +15,10 @@ src/sibux/
 ├── config/
 │   ├── config.py           # Pydantic config models + load_config()
 │   └── defaults.py         # Built-in agent definitions
+├── event/
+│   ├── __init__.py         # Event bus exports
+│   ├── bus.py              # Per-session and global event buses
+│   └── types.py            # Event payload and event-type constants
 ├── hooks/
 │   ├── __init__.py         # Sibux hook exports
 │   ├── provider.py         # SibuxHookProvider implementation
