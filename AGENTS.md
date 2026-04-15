@@ -160,6 +160,7 @@ strands-agents/
 │   ├── event/                            # Session/global event bus primitives
 │   ├── hooks/                            # Sibux hook providers and prompt transforms
 │   ├── session/                          # Project-local session lifecycle
+│   ├── server/                           # FastAPI app and HTTP route skeleton
 │   ├── permission/                       # Tool permission filtering
 │   ├── tools/                            # Sibux tool implementations
 │   ├── __init__.py                       # Package marker
@@ -191,6 +192,7 @@ strands-agents/
 │       ├── event/
 │       ├── hooks/
 │       ├── permission/
+│       ├── server/
 │       ├── session/
 │       └── tools/
 │

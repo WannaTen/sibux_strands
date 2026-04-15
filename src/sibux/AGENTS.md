@@ -23,6 +23,10 @@ src/sibux/
 │   ├── __init__.py         # Sibux hook exports
 │   ├── provider.py         # SibuxHookProvider implementation
 │   └── types.py            # Hook-related shared types
+├── server/
+│   ├── app.py              # FastAPI app factory
+│   ├── routes.py           # HTTP route skeleton
+│   └── schemas.py          # Request/response models
 ├── session/
 │   ├── __init__.py         # Session lifecycle exports
 │   └── service.py          # Project-local session create/resume logic
