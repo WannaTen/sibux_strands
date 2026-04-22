@@ -18,6 +18,7 @@ src/sibux/
 ├── event/
 │   ├── __init__.py         # Event bus exports
 │   ├── bus.py              # Per-session and global event buses
+│   ├── stream.py           # stream_async -> BusEvent mapping helpers
 │   └── types.py            # Event payload and event-type constants
 ├── hooks/
 │   ├── __init__.py         # Sibux hook exports
@@ -25,7 +26,8 @@ src/sibux/
 │   └── types.py            # Hook-related shared types
 ├── server/
 │   ├── app.py              # FastAPI app factory
-│   ├── routes.py           # HTTP route skeleton
+│   ├── routes.py           # HTTP session + streaming routes
+│   ├── sse.py              # GlobalBus -> SSE bridge helpers
 │   └── schemas.py          # Request/response models
 ├── session/
 │   ├── __init__.py         # Session lifecycle exports

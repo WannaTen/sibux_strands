@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+import base64
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from copy import deepcopy
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any
@@ -50,6 +52,20 @@ STREAM_EVENT_TYPES: tuple[str, ...] = (
 ALL_EVENT_TYPES: tuple[str, ...] = LIFECYCLE_EVENT_TYPES + STREAM_EVENT_TYPES
 
 
+class FrozenList(tuple[Any, ...]):
+    """Immutable list-like wrapper used inside frozen bus payloads."""
+
+    def __new__(cls, items: Iterable[Any]) -> FrozenList:
+        """Create an immutable tuple-backed sequence."""
+        return super().__new__(cls, tuple(items))
+
+    def __eq__(self, other: object) -> bool:
+        """Preserve list-style equality semantics for payload comparisons."""
+        if isinstance(other, Sequence) and not isinstance(other, (str, bytes, bytearray)):
+            return tuple(self) == tuple(other)
+        return super().__eq__(other)
+
+
 def _validate_non_empty_text(value: str, *, field_name: str) -> str:
     """Validate a non-empty string field."""
     if not isinstance(value, str) or not value.strip():
@@ -81,8 +97,56 @@ class BusEvent:
         if not isinstance(self.payload, Mapping):
             raise ValueError("payload must be a mapping")
 
-        # Copy into a read-only proxy so published events cannot be mutated after creation.
-        object.__setattr__(self, "payload", MappingProxyType(dict(self.payload)))
+        # Recursively freeze payload data so subscribers cannot mutate shared event state.
+        object.__setattr__(self, "payload", _freeze_mapping(self.payload))
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable dictionary representation."""
+        return {
+            "type": self.type,
+            "session_id": self.session_id,
+            "timestamp": self.timestamp,
+            "payload": _json_safe_value(_thaw_value(self.payload)),
+        }
 
 
 Callback = Callable[[BusEvent], None]
+
+
+def _freeze_mapping(mapping: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Recursively freeze a payload mapping."""
+    return MappingProxyType({key: _freeze_value(value) for key, value in mapping.items()})
+
+
+def _freeze_value(value: Any) -> Any:
+    """Recursively freeze nested payload values."""
+    if isinstance(value, Mapping):
+        return _freeze_mapping(value)
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return FrozenList(_freeze_value(item) for item in value)
+    return deepcopy(value)
+
+
+def _thaw_value(value: Any) -> Any:
+    """Convert frozen payload values back into plain Python containers."""
+    if isinstance(value, Mapping):
+        return {key: _thaw_value(item) for key, item in value.items()}
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return [_thaw_value(item) for item in value]
+    return deepcopy(value)
+
+
+def _json_safe_value(value: Any) -> Any:
+    """Convert thawed payload values into JSON-safe structures."""
+    if isinstance(value, Mapping):
+        return {key: _json_safe_value(item) for key, item in value.items()}
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return [_json_safe_value(item) for item in value]
+    if isinstance(value, (bytes, bytearray)):
+        return {
+            "__bytes_encoded__": True,
+            "data": base64.b64encode(bytes(value)).decode("utf-8"),
+        }
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    return str(value)

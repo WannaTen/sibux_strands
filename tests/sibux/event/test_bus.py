@@ -101,6 +101,34 @@ class TestBus:
         ):
             bus.publish(_event(MESSAGE_TEXT_DELTA, session_id="sibux_other"))
 
+    def test_unsubscribe_all_stops_notifying_session_wide_subscribers(self) -> None:
+        bus = Bus(session_id="sibux_abc123")
+        events: list[BusEvent] = []
+
+        bus.subscribe_all(events.append)
+        bus.unsubscribe_all(events.append)
+        bus.publish(_event(MESSAGE_TEXT_DELTA, payload={"text": "Hello"}))
+
+        assert events == []
+
+    def test_publish_isolates_subscriber_exceptions(self) -> None:
+        bus = Bus(session_id="sibux_abc123")
+        observed_events: list[BusEvent] = []
+
+        def broken_callback(event: BusEvent) -> None:
+            del event
+            raise RuntimeError("boom")
+
+        bus.subscribe_all(broken_callback)
+        bus.subscribe_all(observed_events.append)
+        GlobalBus().on_all(broken_callback)
+        GlobalBus().on_all(observed_events.append)
+
+        event = _event(MESSAGE_TEXT_DELTA, payload={"text": "Hello"})
+        bus.publish(event)
+
+        assert observed_events == [event, event]
+
 
 class TestGlobalBus:
     def test_global_bus_is_a_singleton(self) -> None:
@@ -114,6 +142,16 @@ class TestGlobalBus:
 
         assert first is second
         assert events == [event]
+
+    def test_off_all_stops_notifying_all_event_subscribers(self) -> None:
+        global_bus = GlobalBus()
+        events: list[BusEvent] = []
+
+        global_bus.on_all(events.append)
+        global_bus.off_all(events.append)
+        global_bus.emit(_event(SESSION_CREATED))
+
+        assert events == []
 
 
 class TestBusEvent:
@@ -148,6 +186,37 @@ class TestBusEvent:
 
         source_payload["text"] = "Changed after creation"
         assert event.payload == {"text": "Hello"}
+
+    def test_bus_event_recursively_freezes_nested_payload_values(self) -> None:
+        source_payload = {
+            "event": {
+                "metadata": {
+                    "usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3},
+                }
+            },
+            "items": [{"name": "read"}],
+        }
+        event = _event(MESSAGE_EVENT, payload=source_payload)
+
+        with pytest.raises(TypeError):
+            event.payload["event"]["metadata"]["usage"]["inputTokens"] = 9
+
+        with pytest.raises(TypeError):
+            event.payload["items"][0]["name"] = "write"
+
+        source_payload["event"]["metadata"]["usage"]["inputTokens"] = 9
+        source_payload["items"][0]["name"] = "write"
+
+        assert event.payload["event"]["metadata"]["usage"]["inputTokens"] == 1
+        assert event.payload["items"][0]["name"] == "read"
+        assert event.as_dict()["payload"] == {
+            "event": {
+                "metadata": {
+                    "usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3},
+                }
+            },
+            "items": [{"name": "read"}],
+        }
 
 
 def test_event_type_constants_cover_phase_3_contract() -> None:

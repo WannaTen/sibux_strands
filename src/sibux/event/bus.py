@@ -8,9 +8,12 @@ pushing events into an ``asyncio.Queue``.
 
 from __future__ import annotations
 
+import logging
 import threading
 
 from .types import BusEvent, Callback
+
+logger = logging.getLogger(__name__)
 
 
 class _SubscriberRegistry:
@@ -40,6 +43,14 @@ class _SubscriberRegistry:
         with self._lock:
             self._all_callbacks.append(callback)
 
+    def unsubscribe_all(self, callback: Callback) -> None:
+        """Remove a callback from the all-events subscriber list."""
+        if not callable(callback):
+            raise TypeError("callback must be callable")
+
+        with self._lock:
+            self._all_callbacks = [registered for registered in self._all_callbacks if registered != callback]
+
     def dispatch(self, event: BusEvent) -> None:
         """Dispatch an event to a snapshot of current subscribers."""
         with self._lock:
@@ -47,16 +58,32 @@ class _SubscriberRegistry:
             all_callbacks = list(self._all_callbacks)
 
         for callback in type_callbacks:
-            callback(event)
+            self._dispatch_callback(callback, event)
 
         for callback in all_callbacks:
+            self._dispatch_callback(callback, event)
+
+    def _dispatch_callback(self, callback: Callback, event: BusEvent) -> None:
+        """Invoke one callback without letting failures escape the bus."""
+        try:
             callback(event)
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "event_type=<%s>, callback=<%s> | subscriber callback raised",
+                event.type,
+                _callback_name(callback),
+            )
 
     def _validate_event_type(self, event_type: str) -> str:
         """Validate a subscriber event type."""
         if not isinstance(event_type, str) or not event_type.strip():
             raise ValueError("event_type must be a non-empty, non-whitespace string")
         return event_type
+
+
+def _callback_name(callback: Callback) -> str:
+    """Return a readable callback name for logging."""
+    return getattr(callback, "__qualname__", getattr(callback, "__name__", repr(callback)))
 
 
 class GlobalBus:
@@ -92,6 +119,10 @@ class GlobalBus:
     def on_all(self, callback: Callback) -> None:
         """Subscribe to all events across all sessions."""
         self._registry.subscribe_all(callback)
+
+    def off_all(self, callback: Callback) -> None:
+        """Unsubscribe from all events across all sessions."""
+        self._registry.unsubscribe_all(callback)
 
 
 class Bus:
@@ -140,3 +171,7 @@ class Bus:
     def subscribe_all(self, callback: Callback) -> None:
         """Subscribe to all events for this session."""
         self._registry.subscribe_all(callback)
+
+    def unsubscribe_all(self, callback: Callback) -> None:
+        """Unsubscribe from all events for this session."""
+        self._registry.unsubscribe_all(callback)

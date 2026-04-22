@@ -367,14 +367,9 @@ src/sibux/
 
 ### 2.1 Runtime Kernel Completion (运行时内核补全)
 
-**目标**: 从“直接创建 Agent 并调用”的 MVP 结构, 演进到可承载长会话、持久化、服务化的运行时内核。
+strands 已实现
 
-**交付物**:
-- `SessionRuntime` / `TurnContext` / `InvocationContext` 等内部运行时对象
-- 统一的消息模型, 明确 user / assistant / tool / reasoning / file 等 part 边界
-- token 统计与上下文窗口预算接口
-- 动态 tool registry, 不再依赖静态 `ALL_TOOLS` 列表
-- 配置模型扩展骨架, 为 storage / event / service / mcp 等后续配置预留字段
+说明文档：docs/STREAMING_EVENTS.md
 
 **非目标**:
 - 不在此阶段引入 MCP、Skill、Plugin 等新能力
@@ -382,44 +377,13 @@ src/sibux/
 
 ### 2.2 Storage Layer (SQLite 持久化)
 
-**目标**: 为 session、message、message part 等核心运行时状态提供可靠持久化, 支撑会话恢复、历史查看和服务接口。
-
-**首批数据表**:
-- `project` -- 项目元数据
-- `session` -- 会话元数据, 支持 parent_id 树状关系
-- `message` -- 消息记录, 包含角色、时序、token 统计、stop reason
-- `part` -- 消息组成单元, 支持 text / tool / reasoning / file 等类型
-
-**交付物**:
-- SQLite repository 抽象
-- session 创建、读取、追加消息、恢复最近会话
-- 基础 migration 机制, 保证后续 Phase 可继续扩表
-
-**非目标**:
-- 本阶段不落地 permission decision 持久化逻辑
-- 本阶段不要求暴露 HTTP API
+使用 strands 已有持久化模块
 
 ### 2.3 Unified Event Semantics (统一事件语义)
+strands 已实现
 
-**目标**: 先定义“系统里到底发生了什么”, 再分别实现 hook、bus、SSE 等传播方式。
+说明文档：docs/STREAMING_EVENTS.md
 
-**需要定型的内容**:
-- 事件命名与层级, 例如 `session.*`, `chat.*`, `model.*`, `tool.*`, `storage.*`
-- 事件 payload 结构, 明确 session_id、turn_id、message_id、tool_call_id、timestamp 等字段
-- streaming delta 语义, 明确增量文本、工具状态、结束事件
-- interrupt / abort / error 语义, 保证 CLI 和 HTTP 使用同一套约定
-
-**交付物**:
-- 事件类型定义与 schema
-- 事件生命周期文档
-- 核心发射点清单, 说明哪些模块负责发什么事件
-
-**非目标**:
-- 本阶段只定语义和边界, 不要求把 bus / hook / SSE 全部实现完
-
-**Phase 2 依赖关系**:
-- `Storage Layer` 依赖 `运行时内核补全`, 因为要先有稳定的 session/message 模型
-- `统一事件语义` 依赖 `运行时内核补全`, 因为事件必须绑定到真实运行时对象
 
 ---
 
@@ -427,63 +391,66 @@ src/sibux/
 
 目标: 让 Sibux 在 CLI 和服务端场景下都具备稳定运行能力, 支持长会话、错误恢复、事件流和外部接口。
 
-### 3.1 Output Truncation v2 (完整版输出截断)
+### 3.4 Hook System (执行链路拦截)
 
-**目标**: 工具输出不再只是简单截断, 而是具备可追溯、可恢复的上下文控制能力。
+**目标**: 在 agent 请求执行链路上提供可拦截扩展点, 让 Sibux 层能介入和修改 Strands agent 的行为。
 
-**交付物**:
-- 超出阈值的工具输出写入临时文件或受控缓存目录
-- 截断返回值附带文件路径和摘要信息
-- 临时文件自动清理策略, 默认 7 天过期
-- 不同 agent / tool 的差异化截断配额
-
-### 3.2 Retry & Error Handling
-
-**目标**: 对可恢复错误做统一重试, 对不可恢复错误做清晰分类和暴露。
+**性质**: per-agent, 同步执行链路中的拦截器。通过 Strands `HookProvider` 机制注册到单个 agent 实例上, 随 agent 调用触发。
 
 **交付物**:
-- 可重试错误分类: `429`, `529`, provider overloaded 等
-- 统一退避策略: 优先使用 `retry-after`, 否则指数退避 `2s * 2^(attempt-1)`, 最大 30s
-- 明确不可重试错误: context overflow、auth error、invalid request 等
-- CLI 与 HTTP 共用的错误表示结构
+- `chat.message` -- 用户消息创建后, 模型调用前, 可修改消息内容
+- `chat.system.transform` -- system prompt 构建后, 最终下发前, 可追加或改写 prompt
+- `tool.execute.before` / `tool.execute.after` -- 工具执行前后, 可取消/重试工具调用
+- `session.compacting` -- 压缩前, 允许注入额外上下文 (Phase 4 compaction 落地时启用)
 
-### 3.3 Session Compaction (上下文压缩)
+**实现方式**:
+- `tool.execute.before/after` 直接桥接 Strands 已有的 `BeforeToolCallEvent` / `AfterToolCallEvent`
+- `chat.message` 和 `chat.system.transform` 是 Strands 没有直接对应的拦截点, 需要在 Sibux 的 `agent_factory` 层实现 transform 管线
+- 在 `agent_factory.create()` 时注册 Sibux 自定义的 `HookProvider`
 
-**目标**: 让长会话在有限上下文窗口内可持续运行。
+**非目标**:
+- Hook 不负责对外广播事件, 那是 Event Bus 的职责
+- Hook 不跨 session / 跨进程
 
-**两阶段策略**:
-1. `Prune`: 清空较旧工具调用的冗长输出, 保留调用结构和关键结论
-2. `Compact`: 使用 compaction agent 生成历史摘要, 替换旧消息
+### 3.5 Event Bus (事件广播)
 
-**触发条件**:
-- `total_tokens >= model.context_limit - reserved`
-- 默认保留最近 20K tokens 的安全余量
+**目标**: 提供内部事件的广播通道, 让 SSE 端点、Plugin、监控等外部消费者能实时获知系统中发生了什么。
 
-**实现路径**:
-- 优先复用 Strands 的 `SummarizingContextManager`
-- 在其上扩展 prune + compact 双阶段策略
+**性质**: 只读观察者模式。Bus 不修改执行链路, 只负责”告诉外部发生了什么”。
 
-### 3.4 Event Bus + Hook System
+**两层结构**:
+- `Bus` -- per-session 事件流, 广播该 session 内的执行事实
+- `GlobalBus` -- 进程级单例, 聚合所有 session 的事件, 供 SSE 端点订阅
 
-**目标**: 在 Phase 2 统一事件语义的基础上, 落地内部事件传播和可拦截扩展点。
+**事件来源**: `Agent.stream_async()` 是唯一的事件源。在消费 stream_async 的地方 (CLI 主循环 / HTTP handler) 将每个 yield 的事件 publish 到 Bus。不通过 Hook 桥接 -- Hook 的职责是修改执行链路, 不是观察。
 
-**Event Bus 交付物**:
-- `Bus` -- per-session 事件流
-- `GlobalBus` -- 进程级全局事件流
-- 订阅 / 发布接口
-- 支持 message delta、tool execution、abort、error、compaction 等核心事件
+**交付物**:
+- `Bus` 类: `publish()` / `subscribe(event_type)` / `subscribe_all()`
+- `GlobalBus` 单例: `emit()` / `on()`
+- 事件类型定义: 生命周期事件 + 内容流事件
 
-**Hook System 交付物**:
-- `chat.message` -- 用户消息创建后, 模型调用前
-- `chat.system.transform` -- system prompt 构建后, 最终下发前
-- `tool.execute.before` / `tool.execute.after` -- 工具执行前后
-- `session.compacting` -- 压缩前, 允许注入额外上下文
+**核心事件**:
 
-**设计约束**:
-- hook 与 event bus 使用同一套事件语义
-- hook 负责“修改执行过程”, event bus 负责“广播执行事实”
+生命周期事件:
+- `session.created` / `session.resumed`
+- `invocation.before` / `invocation.after`
+- `model.call.before` / `model.call.after`
+- `tool.execute.before` / `tool.execute.after`
+- `message.added`
 
-### 3.5 HTTP Server + SSE
+内容流事件 (来自 stream_async):
+- `message.text.delta` -- 文本增量
+- `message.tool_use.delta` -- 工具输入增量
+- `message.reasoning.delta` -- 推理文本增量
+- `message.event` -- 原始 StreamEvent 透传
+- `tool.stream` -- 工具执行流式输出
+- `tool.cancelled` -- 工具取消事件
+- `invocation.result` -- 最终 AgentResult
+
+**非目标**:
+- Bus 不修改执行链路, 不拦截请求
+
+### 3.6 HTTP Server + SSE
 
 **目标**: 在已有运行时和事件系统之上提供服务化接口, 让 Sibux 不再局限于本地 REPL。
 
@@ -505,11 +472,9 @@ GET    /provider                列出可用模型
 - abort 语义与运行时 interrupt 对齐
 
 **Phase 3 依赖关系**:
-- `Output Truncation v2` 依赖 `运行时内核补全`, 因为要接入统一工具输出路径
-- `Retry & Error Handling` 依赖 `统一事件语义`, 因为错误和重试状态需要统一表示
-- `Session Compaction` 依赖 `运行时内核补全` 和 `Storage Layer`
-- `Event Bus + Hook System` 依赖 `统一事件语义`
-- `HTTP Server + SSE` 依赖 `Storage Layer` 与 `Event Bus + Hook System`
+- `Hook System` 无外部依赖, 直接基于 Strands HookProvider 实现
+- `Event Bus` 无外部依赖, 事件来源是 `Agent.stream_async()` 而非 Hook
+- `HTTP Server + SSE` 依赖 `Event Bus` (SSE 端点订阅 GlobalBus)
 
 ---
 
@@ -517,7 +482,43 @@ GET    /provider                列出可用模型
 
 目标: 在稳定底座和生产能力之上, 增加权限、安全边界、工作流、生态扩展和自动化能力。
 
-### 4.1 Permission System (完整权限系统)
+### 4.0 Output Truncation v2 (完整版输出截断)
+
+**目标**: 工具输出不再只是简单截断, 而是具备可追溯、可恢复的上下文控制能力。
+
+**交付物**:
+- 超出阈值的工具输出写入临时文件或受控缓存目录
+- 截断返回值附带文件路径和摘要信息
+- 临时文件自动清理策略, 默认 7 天过期
+- 不同 agent / tool 的差异化截断配额
+
+### 4.2 Retry & Error Handling
+
+**目标**: 对可恢复错误做统一重试, 对不可恢复错误做清晰分类和暴露。
+
+**交付物**:
+- 可重试错误分类: `429`, `529`, provider overloaded 等
+- 统一退避策略: 优先使用 `retry-after`, 否则指数退避 `2s * 2^(attempt-1)`, 最大 30s
+- 明确不可重试错误: context overflow、auth error、invalid request 等
+- CLI 与 HTTP 共用的错误表示结构
+
+### 4.3 Session Compaction (上下文压缩)
+
+**目标**: 让长会话在有限上下文窗口内可持续运行。
+
+**两阶段策略**:
+1. `Prune`: 清空较旧工具调用的冗长输出, 保留调用结构和关键结论
+2. `Compact`: 使用 compaction agent 生成历史摘要, 替换旧消息
+
+**触发条件**:
+- `total_tokens >= model.context_limit - reserved`
+- 默认保留最近 20K tokens 的安全余量
+
+**实现路径**:
+- 优先复用 Strands 的 `SummarizingContextManager`
+- 在其上扩展 prune + compact 双阶段策略
+
+### 4.4 Permission System (完整权限系统)
 
 **目标**: 从 MVP 的“工具级预过滤”升级为运行时权限系统。
 
@@ -531,7 +532,7 @@ GET    /provider                列出可用模型
 **说明**:
 - Phase 4 中所有扩大能力边界的特性, 都应建立在完整权限系统之上
 
-### 4.2 MCP Integration (MCP 工具服务器)
+### 4.5 MCP Integration (MCP 工具服务器)
 
 **目标**: 把外部 MCP 工具纳入统一工具体系。
 
@@ -540,7 +541,7 @@ GET    /provider                列出可用模型
 - stdio / 本地命令启动模式
 - MCP 工具参与同一套权限检查、事件发射和错误处理
 
-### 4.3 Skill System (技能系统)
+### 4.6 Skill System (技能系统)
 
 **目标**: 提供可复用的任务级专业指令封装。
 
@@ -562,7 +563,7 @@ description: 一句话描述
 - `skill` 工具
 - skill 列表注入 system prompt
 
-### 4.4 Plan Agent (计划模式)
+### 4.7 Plan Agent (计划模式)
 
 **目标**: 提供“先分析、后设计、再确认”的高价值工作流。
 
@@ -577,7 +578,7 @@ description: 一句话描述
 - plan agent 只能写 `.sibux/plans/*.md`
 - 其余文件默认只读
 
-### 4.5 @agent 语法
+### 4.8 @agent 语法
 
 **目标**: 提供显式 agent 入口语法, 但不引入新的执行模型。
 
@@ -586,7 +587,7 @@ description: 一句话描述
 - 解析 `@agent` 为 synthetic 消息
 - 最终仍然通过统一的 `task` 工具路径执行
 
-### 4.6 Structured Output
+### 4.9 Structured Output
 
 **目标**: 提供稳定的结构化结果约束, 支撑后续自动化能力。
 
@@ -595,7 +596,7 @@ description: 一句话描述
 - `StructuredOutput` 工具
 - 结构化结果校验与失败重试
 
-### 4.7 Plugin System (插件系统)
+### 4.10 Plugin System (插件系统)
 
 **目标**: 允许外部扩展在不修改核心代码的情况下接入 Sibux。
 
@@ -611,7 +612,7 @@ class Plugin(Protocol):
 - 拦截工具调用
 - 监听所有事件
 
-### 4.8 Agent Generation (LLM 生成 Agent)
+### 4.11 Agent Generation (LLM 生成 Agent)
 
 **目标**: 让用户通过自然语言生成新的 agent 配置。
 
@@ -620,7 +621,7 @@ class Plugin(Protocol):
 - 写入配置文件并立即生效
 - 与系统内置 agent 使用同一套配置模型
 
-### 4.9 Git Snapshot
+### 4.12 Git Snapshot
 
 **目标**: 为每轮关键执行保留可回滚代码快照。
 
@@ -650,8 +651,9 @@ class Plugin(Protocol):
 
 - `Phase 2 / 运行时内核补全` 是后续所有阶段的共同前置
 - `Phase 2 / Storage Layer` 是 `Session Compaction`、`HTTP Server + SSE`、`Permission System`、`Git Snapshot` 的前置
-- `Phase 2 / 统一事件语义` 是 `Event Bus + Hook System`、`HTTP Server + SSE`、`Plugin System` 的前置
-- `Phase 3 / Event Bus + Hook System` 是 `HTTP Server + SSE`、`MCP Integration`、`Plugin System` 的前置
+- `Phase 2 / 统一事件语义` 是 `Event Bus`、`Hook System`、`HTTP Server + SSE`、`Plugin System` 的前置
+- `Phase 3 / Event Bus` 是 `HTTP Server + SSE`、`Plugin System` 的前置 (Bus 事件来自 stream_async, 不依赖 Hook System)
+- `Phase 3 / Hook System` 是 `MCP Integration`、`Plugin System` 的前置 (Hook 负责修改执行链路)
 - `Phase 3 / Retry & Error Handling` 是 `Structured Output`、`MCP Integration` 等复杂执行路径的前置
 - `Phase 4 / Permission System` 必须先于 `MCP Integration`、`Plan Agent`、`Plugin System`、`Git Snapshot`
 - `Phase 4 / Structured Output` 必须先于 `Agent Generation`

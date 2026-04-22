@@ -1,4 +1,4 @@
-"""Tests for the Sibux FastAPI route skeleton."""
+"""Tests for non-streaming Sibux FastAPI routes."""
 
 from __future__ import annotations
 
@@ -72,24 +72,27 @@ class TestRoutes:
             {"provider": "openai", "models": ["gpt-5.1"]},
         ]
 
-    def test_unimplemented_endpoints_return_501(self, tmp_path: Path) -> None:
+    def test_message_endpoint_rejects_unknown_session(self, tmp_path: Path) -> None:
         config = _build_config()
         client = TestClient(create_app(config, session_service=SessionService(project_root=tmp_path)))
 
         message_response = client.post("/session/sibux_test/message", json={"content": "hello"})
-        event_response = client.get("/event")
 
-        assert message_response.status_code == 501
-        assert event_response.status_code == 501
+        assert message_response.status_code == 404
 
-    def test_stub_history_and_abort_endpoints_return_placeholders(self, tmp_path: Path) -> None:
+    def test_messages_endpoint_rejects_unknown_session(self, tmp_path: Path) -> None:
         config = _build_config()
         client = TestClient(create_app(config, session_service=SessionService(project_root=tmp_path)))
 
         messages_response = client.get("/session/sibux_test/messages")
+
+        assert messages_response.status_code == 404
+
+    def test_abort_endpoint_returns_false_without_active_invocation(self, tmp_path: Path) -> None:
+        config = _build_config()
+        client = TestClient(create_app(config, session_service=SessionService(project_root=tmp_path)))
+
         abort_response = client.post("/session/sibux_test/abort")
 
-        assert messages_response.status_code == 200
-        assert messages_response.json() == []
         assert abort_response.status_code == 200
         assert abort_response.json() == {"aborted": False}

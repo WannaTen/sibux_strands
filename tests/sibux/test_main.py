@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator, Iterator
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import pytest
 
 from sibux.config.config import Config
 from sibux.config.defaults import default_config_dict
+from sibux.event import INVOCATION_RESULT, MESSAGE_TEXT_DELTA, GlobalBus
 from sibux.main import main
+from strands.agent.agent_result import AgentResult
+from strands.telemetry.metrics import EventLoopMetrics
 
 
 def _build_config() -> Config:
@@ -39,22 +43,35 @@ def _active_session(
     )
 
 
-class _FakeResult:
-    """Simple fake Strands result object for CLI tests."""
+@pytest.fixture(autouse=True)
+def reset_global_bus() -> Iterator[None]:
+    """Reset the singleton bus between CLI tests."""
+    GlobalBus._instance = None
+    yield
+    GlobalBus._instance = None
 
-    def __init__(self, *, stop_reason: str = "end_turn") -> None:
-        self.stop_reason = stop_reason
+
+def _result(*, stop_reason: str = "end_turn", text: str = "done") -> AgentResult:
+    """Build a real AgentResult for streaming CLI tests."""
+    return AgentResult(
+        stop_reason=stop_reason,
+        message={"role": "assistant", "content": [{"text": text}]},
+        metrics=EventLoopMetrics(),
+        state={},
+    )
 
 
 class _FakeAgent:
-    """Minimal callable agent stub that records prompts."""
+    """Minimal streaming agent stub that records prompts."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, events: list[dict[str, object]] | None = None) -> None:
         self.calls: list[str] = []
+        self._events = events or [{"result": _result()}]
 
-    def __call__(self, prompt: str) -> _FakeResult:
+    async def stream_async(self, prompt: str) -> AsyncGenerator[dict[str, object], None]:
         self.calls.append(prompt)
-        return _FakeResult()
+        for event in self._events:
+            yield dict(event)
 
 
 class TestMain:
@@ -81,6 +98,7 @@ class TestMain:
         session_service_cls.assert_called_once_with(
             storage_dir=config.session.storage_dir,
             resume=config.session.resume,
+            global_bus=ANY,
         )
         session_service.create_or_resume.assert_called_once_with(agent_name="build")
         create_mock.assert_called_once_with(
@@ -214,3 +232,32 @@ class TestMain:
         stdout = capsys.readouterr().out
         assert agent.calls == ["/session now"]
         assert "session_id:" not in stdout
+
+    def test_main_publishes_stream_events_to_global_bus(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        config = _build_config()
+        active_session = _active_session(session_id="sibux_bus", resumed=True)
+        agent = _FakeAgent(
+            events=[
+                {"data": "hello", "delta": {"text": "hello"}},
+                {"result": _result(text="hello")},
+            ]
+        )
+        observed_events = []
+        GlobalBus().on_all(observed_events.append)
+        inputs = iter(["hello", "exit"])
+        monkeypatch.setattr("sibux.main.sys.argv", ["sibux"])
+        monkeypatch.setattr("builtins.input", lambda _: next(inputs))
+
+        with (
+            patch("sibux.main.load_config", return_value=config),
+            patch("sibux.main.SessionService") as session_service_cls,
+            patch("sibux.main.create", return_value=agent),
+        ):
+            session_service_cls.return_value.create_or_resume.return_value = active_session
+            main()
+
+        capsys.readouterr()
+        assert [event.type for event in observed_events] == [MESSAGE_TEXT_DELTA, INVOCATION_RESULT]
+        assert [event.session_id for event in observed_events] == ["sibux_bus", "sibux_bus"]

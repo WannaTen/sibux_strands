@@ -11,9 +11,13 @@ from pathlib import Path
 from typing import Literal
 from uuid import uuid4
 
+from strands.context_manager.sliding_window_context_manager import SlidingWindowContextManager
 from strands.session import FileSessionManager
+from strands.types.exceptions import SessionException
+from strands.types.session import Session, SessionAgent, SessionType
 
 from ..config.config import find_project_root, validate_agent_name
+from ..event import SESSION_CREATED, SESSION_RESUMED, BusEvent, GlobalBus
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +69,7 @@ class SessionService:
         project_root: str | Path | None = None,
         storage_dir: str | Path = DEFAULT_SESSION_STORAGE_DIR,
         resume: Literal["last", "new"] = "last",
+        global_bus: GlobalBus | None = None,
     ) -> None:
         """Initialize the service.
 
@@ -75,6 +80,8 @@ class SessionService:
                 files. The default matches the frozen Phase 2 contract.
             resume: Startup resume policy. ``"last"`` attempts to restore the
                 most recent session for the current primary agent.
+            global_bus: Optional process-wide event bus used to publish session
+                lifecycle events.
 
         Raises:
             ValueError: When ``resume`` is not supported.
@@ -86,6 +93,7 @@ class SessionService:
         self._storage_dir = self._resolve_storage_dir(storage_dir)
         self._state_file = (self._project_root / DEFAULT_STATE_FILE).resolve()
         self._resume = resume
+        self._global_bus = global_bus if global_bus is not None else GlobalBus()
         self._current: ActiveSession | None = None
 
     def create_or_resume(self, *, agent_name: str) -> ActiveSession:
@@ -130,8 +138,7 @@ class SessionService:
             )
             return self._new_session(agent_name=validated_agent_name)
 
-        session_dir = self._session_dir(state.current_session_id)
-        if not session_dir.is_dir():
+        if not self._session_file(state.current_session_id).is_file():
             logger.debug(
                 "agent=<%s>, session_id=<%s> | state points to missing session directory, creating new session",
                 validated_agent_name,
@@ -148,6 +155,7 @@ class SessionService:
                 agent_name=validated_agent_name,
                 resumed=True,
             )
+            self._activate_session(active_session)
         except Exception as exc:
             logger.warning(
                 "agent=<%s>, session_id=<%s>, error=<%s> | failed to resume session, creating new session",
@@ -160,7 +168,6 @@ class SessionService:
                 restore_error=f"failed to restore previous session '{state.current_session_id}': {exc}",
             )
 
-        self._set_current(active_session)
         logger.debug("agent=<%s>, session_id=<%s> | resumed session", validated_agent_name, active_session.session_id)
         return active_session
 
@@ -175,6 +182,32 @@ class SessionService:
         """
         return self._new_session(agent_name=self._validate_agent_name(agent_name))
 
+    def get_session(self, *, session_id: str) -> ActiveSession | None:
+        """Load an existing session by id without changing current-session state."""
+        if not self._session_file(session_id).is_file():
+            return None
+
+        session_manager = FileSessionManager(session_id=session_id, storage_dir=str(self._storage_dir))
+
+        if session_manager.read_session(session_id) is None:
+            return None
+
+        agent_id = self._discover_primary_agent_id(session_id, session_manager)
+        if agent_id is None:
+            state = self._load_state()
+            if state is not None and state.current_session_id == session_id:
+                agent_id = state.agent
+
+        if agent_id is None:
+            logger.warning("session_id=<%s> | session exists but has no readable agent metadata", session_id)
+            return None
+
+        return self._build_active_session(
+            session_id=session_id,
+            agent_name=agent_id,
+            resumed=True,
+        )
+
     def _new_session(self, *, agent_name: str, restore_error: str | None = None) -> ActiveSession:
         active_session = self._build_active_session(
             session_id=self._generate_session_id(),
@@ -182,7 +215,7 @@ class SessionService:
             resumed=False,
             restore_error=restore_error,
         )
-        self._set_current(active_session)
+        self._activate_session(active_session)
         logger.debug("agent=<%s>, session_id=<%s> | created new session", agent_name, active_session.session_id)
         return active_session
 
@@ -213,6 +246,12 @@ class SessionService:
     def _set_current(self, active_session: ActiveSession) -> None:
         self._write_state(active_session)
         self._current = active_session
+
+    def _activate_session(self, active_session: ActiveSession) -> None:
+        """Persist and publish the newly active session."""
+        self._ensure_session_metadata(active_session)
+        self._set_current(active_session)
+        self.publish_session_event(active_session)
 
     def _write_state(self, active_session: ActiveSession) -> None:
         self._state_file.parent.mkdir(parents=True, exist_ok=True)
@@ -265,14 +304,81 @@ class SessionService:
             storage_path = self._project_root / storage_path
         return storage_path.resolve()
 
+    def _discover_primary_agent_id(self, session_id: str, session_manager: FileSessionManager) -> str | None:
+        """Find the primary agent id recorded inside one session directory."""
+        agents_dir = self._session_dir(session_id) / "agents"
+        if not agents_dir.is_dir():
+            return None
+
+        for agent_dir in sorted(agents_dir.iterdir()):
+            if not agent_dir.is_dir() or not agent_dir.name.startswith("agent_"):
+                continue
+
+            agent_id = agent_dir.name.removeprefix("agent_")
+            if not agent_id:
+                continue
+
+            try:
+                session_agent = session_manager.read_agent(session_id=session_id, agent_id=agent_id)
+            except SessionException:
+                logger.warning(
+                    "session_id=<%s>, agent_id=<%s> | failed to read session agent metadata",
+                    session_id,
+                    agent_id,
+                    exc_info=True,
+                )
+                continue
+
+            if session_agent is not None:
+                return self._validate_agent_name(session_agent.agent_id)
+
+        return None
+
     def _session_dir(self, session_id: str) -> Path:
         return self._storage_dir / f"session_{session_id}"
+
+    def _session_file(self, session_id: str) -> Path:
+        return self._session_dir(session_id) / "session.json"
 
     def _generate_session_id(self) -> str:
         return f"sibux_{uuid4().hex}"
 
     def _validate_agent_name(self, agent_name: str) -> str:
         return validate_agent_name(agent_name)
+
+    def _ensure_session_metadata(self, active_session: ActiveSession) -> None:
+        """Persist the minimal session and agent metadata needed for later restores."""
+        session_manager = active_session.session_manager
+
+        if session_manager.read_session(active_session.session_id) is None:
+            session_manager.create_session(
+                Session(
+                    session_id=active_session.session_id,
+                    session_type=SessionType.AGENT,
+                )
+            )
+
+        if session_manager.read_agent(active_session.session_id, active_session.agent_id) is None:
+            session_manager.create_agent(
+                active_session.session_id,
+                SessionAgent(
+                    agent_id=active_session.agent_id,
+                    state={},
+                    context_manager_state=SlidingWindowContextManager().get_state(),
+                ),
+            )
+
+    def publish_session_event(self, active_session: ActiveSession) -> None:
+        """Publish the session lifecycle event for the given active session."""
+        event_type = SESSION_RESUMED if active_session.resumed else SESSION_CREATED
+        self._global_bus.emit(
+            BusEvent(
+                type=event_type,
+                session_id=active_session.session_id,
+                timestamp=_utc_now(),
+                payload={"agent_name": active_session.agent_name},
+            )
+        )
 
 
 def _utc_now() -> str:

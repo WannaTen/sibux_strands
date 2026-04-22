@@ -2,12 +2,22 @@
 
 import json
 import shutil
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
+from sibux.event import SESSION_CREATED, SESSION_RESUMED, GlobalBus
 from sibux.session import SessionService
 from strands.session import FileSessionManager
+
+
+@pytest.fixture(autouse=True)
+def reset_global_bus() -> Iterator[None]:
+    """Reset the singleton bus between session tests."""
+    GlobalBus._instance = None
+    yield
+    GlobalBus._instance = None
 
 
 class TestSessionService:
@@ -116,6 +126,72 @@ class TestSessionService:
         assert first_session.resumed is False
         assert second_session.resumed is False
         assert service.current() is second_session
+
+    def test_new_session_publishes_session_created_event(self, tmp_path: Path) -> None:
+        global_events = []
+        global_bus = GlobalBus()
+        global_bus.on_all(global_events.append)
+        service = SessionService(project_root=tmp_path, global_bus=global_bus)
+
+        active_session = service.new_session(agent_name="build")
+
+        assert len(global_events) == 1
+        assert global_events[0].type == SESSION_CREATED
+        assert global_events[0].session_id == active_session.session_id
+        assert global_events[0].payload == {"agent_name": "build"}
+
+    def test_create_or_resume_publishes_session_resumed_event(self, tmp_path: Path) -> None:
+        SessionService(project_root=tmp_path).create_or_resume(agent_name="build")
+        global_events = []
+        global_bus = GlobalBus()
+        global_bus.on_all(global_events.append)
+
+        resumed_session = SessionService(
+            project_root=tmp_path,
+            global_bus=global_bus,
+        ).create_or_resume(agent_name="build")
+
+        assert len(global_events) == 1
+        assert global_events[0].type == SESSION_RESUMED
+        assert global_events[0].session_id == resumed_session.session_id
+        assert global_events[0].payload == {"agent_name": "build"}
+
+    def test_get_session_loads_existing_session_without_changing_current(self, tmp_path: Path) -> None:
+        created_session = SessionService(project_root=tmp_path).create_or_resume(agent_name="build")
+        service = SessionService(project_root=tmp_path)
+
+        restored_session = service.get_session(session_id=created_session.session_id)
+
+        assert restored_session is not None
+        assert restored_session.session_id == created_session.session_id
+        assert restored_session.agent_name == "build"
+        assert restored_session.resumed is True
+        assert service.current() is None
+
+    def test_get_session_restores_older_session_after_newer_session_becomes_current(self, tmp_path: Path) -> None:
+        service = SessionService(project_root=tmp_path)
+        first_session = service.new_session(agent_name="build")
+        second_session = service.new_session(agent_name="build")
+
+        restored_session = SessionService(project_root=tmp_path).get_session(session_id=first_session.session_id)
+
+        assert restored_session is not None
+        assert restored_session.session_id == first_session.session_id
+        assert restored_session.agent_name == "build"
+        assert restored_session.resumed is True
+        assert second_session.session_id != first_session.session_id
+
+    def test_get_session_returns_none_for_unknown_session(self, tmp_path: Path) -> None:
+        service = SessionService(project_root=tmp_path)
+
+        assert service.get_session(session_id="sibux_missing") is None
+
+    def test_get_session_does_not_create_files_for_unknown_session(self, tmp_path: Path) -> None:
+        service = SessionService(project_root=tmp_path)
+        session_dir = tmp_path / ".sibux" / "session" / "strands" / "session_sibux_missing"
+
+        assert service.get_session(session_id="sibux_missing") is None
+        assert session_dir.exists() is False
 
     def test_create_or_resume_with_resume_new_always_creates_new_session(self, tmp_path: Path) -> None:
         first_session = SessionService(project_root=tmp_path).create_or_resume(agent_name="build")

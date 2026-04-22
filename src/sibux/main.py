@@ -5,14 +5,18 @@ Starts an interactive REPL session using the configured default agent.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sys
 from typing import TYPE_CHECKING
 
 import strands
+from strands.agent.agent_result import AgentResult
 
 from .agent.agent_factory import create
 from .config.config import load_config
+from .event import Bus, GlobalBus
+from .event.stream import StreamEventMapper
 from .session import ActiveSession, SessionService
 
 if TYPE_CHECKING:
@@ -42,9 +46,11 @@ def main() -> None:
         print(f"Error: default agent '{agent_name}' must have mode='primary'", file=sys.stderr)
         sys.exit(1)
 
+    global_bus = GlobalBus()
     session_service = SessionService(
         storage_dir=config.session.storage_dir,
         resume=config.session.resume,
+        global_bus=global_bus,
     )
     active_session = session_service.create_or_resume(agent_name=agent_name)
 
@@ -55,6 +61,7 @@ def main() -> None:
     print(f"model: {resolved_model}")
     _print_session_banner(active_session)
 
+    bus = _create_session_bus(active_session, global_bus)
     agent = _create_primary_agent(config, agent_config, active_session)
 
     print(f"Sibux [{agent_name}]  (type 'exit' to quit)\n")
@@ -73,6 +80,7 @@ def main() -> None:
         if user_input == "/new":
             active_session = session_service.new_session(agent_name=agent_name)
             _print_session_banner(active_session)
+            bus = _create_session_bus(active_session, global_bus)
             agent = _create_primary_agent(config, agent_config, active_session)
             continue
         if user_input == "/session":
@@ -80,7 +88,7 @@ def main() -> None:
             continue
 
         try:
-            result = agent(user_input)
+            result = asyncio.run(_stream_agent_prompt(agent, bus, user_input))
             print(f"\n[stop_reason: {result.stop_reason}]")
         except KeyboardInterrupt:
             print("\n[interrupted]")
@@ -99,6 +107,32 @@ def _create_primary_agent(config: Config, agent_config: AgentConfig, active_sess
         session_manager=active_session.session_manager,
         agent_id=active_session.agent_id,
     )
+
+
+def _create_session_bus(active_session: ActiveSession, global_bus: GlobalBus) -> Bus:
+    """Create the per-session bus used by the current CLI session."""
+    return Bus(active_session.session_id, global_bus=global_bus)
+
+
+async def _stream_agent_prompt(agent: strands.Agent, bus: Bus, prompt: str) -> AgentResult:
+    """Run one prompt through ``stream_async()`` and publish mapped bus events."""
+    result: AgentResult | None = None
+    model_config = getattr(getattr(agent, "model", None), "config", None)
+    model_id = model_config.get("model_id") if isinstance(model_config, dict) else None
+    mapper = StreamEventMapper(bus.session_id, model_id=model_id)
+
+    async for stream_event in agent.stream_async(prompt):
+        for bus_event in mapper.map_event(stream_event):
+            bus.publish(bus_event)
+
+        stream_result = stream_event.get("result")
+        if isinstance(stream_result, AgentResult):
+            result = stream_result
+
+    if result is None:
+        raise RuntimeError("agent stream completed without a result event")
+
+    return result
 
 
 def _print_session_banner(active_session: ActiveSession) -> None:
