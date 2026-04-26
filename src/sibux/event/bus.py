@@ -102,11 +102,12 @@ class GlobalBus:
 
     def __init__(self) -> None:
         """Initialize the singleton state once."""
-        if getattr(self, "_initialized", False):
-            return
+        with self._instance_lock:
+            if getattr(self, "_initialized", False):
+                return
 
-        self._registry = _SubscriberRegistry()
-        self._initialized = True
+            self._registry = _SubscriberRegistry()
+            self._initialized = True
 
     def emit(self, event: BusEvent) -> None:
         """Broadcast an event to global subscribers."""

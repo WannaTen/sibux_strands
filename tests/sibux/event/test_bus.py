@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import threading
+import time
 from collections.abc import Iterator
 from dataclasses import FrozenInstanceError
 
 import pytest
 
+import sibux.event.bus as bus_module
 from sibux.event import (
     ALL_EVENT_TYPES,
     INVOCATION_AFTER,
@@ -40,6 +43,17 @@ def reset_global_bus() -> Iterator[None]:
     GlobalBus._instance = None
     yield
     GlobalBus._instance = None
+
+
+class _NonCopyableValue:
+    """Simple payload object that refuses deepcopy."""
+
+    def __deepcopy__(self, memo: object) -> _NonCopyableValue:
+        del memo
+        raise TypeError("cannot deepcopy")
+
+    def __str__(self) -> str:
+        return "noncopyable-value"
 
 
 def _event(event_type: str, *, session_id: str = "sibux_abc123", payload: dict[str, object] | None = None) -> BusEvent:
@@ -153,6 +167,42 @@ class TestGlobalBus:
 
         assert events == []
 
+    def test_global_bus_initializes_registry_once_under_race(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        created_registries = 0
+        first_registry_started = threading.Event()
+        release_first_registry = threading.Event()
+        original_registry = bus_module._SubscriberRegistry
+
+        class SlowRegistry(original_registry):
+            def __init__(self) -> None:
+                nonlocal created_registries
+                created_registries += 1
+                if created_registries == 1:
+                    first_registry_started.set()
+                    release_first_registry.wait(timeout=1.0)
+                super().__init__()
+
+        monkeypatch.setattr(bus_module, "_SubscriberRegistry", SlowRegistry)
+        created_instances: list[GlobalBus] = []
+
+        def create_bus() -> None:
+            created_instances.append(GlobalBus())
+
+        first = threading.Thread(target=create_bus)
+        second = threading.Thread(target=create_bus)
+
+        first.start()
+        assert first_registry_started.wait(timeout=1.0)
+        second.start()
+        time.sleep(0.05)
+        release_first_registry.set()
+        first.join()
+        second.join()
+
+        assert created_registries == 1
+        assert len(created_instances) == 2
+        assert created_instances[0] is created_instances[1]
+
 
 class TestBusEvent:
     def test_bus_event_rejects_invalid_scalar_fields(self) -> None:
@@ -216,6 +266,17 @@ class TestBusEvent:
                 }
             },
             "items": [{"name": "read"}],
+        }
+
+    def test_bus_event_allows_noncopyable_leaf_values(self) -> None:
+        source_value = _NonCopyableValue()
+        event = _event(TOOL_STREAM, payload={"data": source_value, "items": [source_value]})
+
+        assert event.payload["data"] is source_value
+        assert event.payload["items"][0] is source_value
+        assert event.as_dict()["payload"] == {
+            "data": "noncopyable-value",
+            "items": ["noncopyable-value"],
         }
 
 

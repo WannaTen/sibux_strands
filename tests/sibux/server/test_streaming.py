@@ -38,6 +38,7 @@ from sibux.event.stream import StreamEventMapper, flatten_message_content
 from sibux.server.app import create_app
 from sibux.server.routes import abort_session, create_session, list_messages, send_message, stream_events
 from sibux.server.schemas import SendMessageRequest
+from sibux.server.sse import encode_sse_event
 from sibux.session import SessionService
 from strands.agent.agent_result import AgentResult
 from strands.handlers import null_callback_handler
@@ -211,6 +212,17 @@ def _assistant_message(text: str) -> dict[str, object]:
         "role": "assistant",
         "content": [{"text": text}],
     }
+
+
+class _NonCopyableToolChunk:
+    """Simple stream chunk that cannot be deep-copied."""
+
+    def __deepcopy__(self, memo: object) -> _NonCopyableToolChunk:
+        del memo
+        raise TypeError("cannot deepcopy")
+
+    def __str__(self) -> str:
+        return "tool-stream-chunk"
 
 
 @pytest.mark.parametrize(
@@ -469,6 +481,208 @@ def test_stream_event_mapper_falls_back_to_result_for_missing_stop_and_usage() -
     ]
     assert mapped_events[2].payload == {"stop_reason": "cancelled"}
     assert mapped_events[3].payload == {"model_id": "anthropic/claude-sonnet-4-5", "usage": {}}
+
+
+def test_stream_event_mapper_emits_invocation_before_once_across_repeated_cycle_starts() -> None:
+    mapper = StreamEventMapper("sibux_stream", model_id="anthropic/claude-sonnet-4-5")
+    result = AgentResult(
+        stop_reason="end_turn",
+        message={"role": "assistant", "content": [{"text": "done"}]},
+        metrics=EventLoopMetrics(),
+        state={},
+    )
+
+    mapped_events: list[BusEvent] = []
+    for stream_event in [
+        {"start": True},
+        {"start_event_loop": True},
+        {"event": {"messageStop": {"stopReason": "tool_use"}}},
+        {"event": {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3}}}},
+        {"start": True},
+        {"start": True},
+        {"start_event_loop": True},
+        {"event": {"messageStop": {"stopReason": "end_turn"}}},
+        {"event": {"metadata": {"usage": {"inputTokens": 4, "outputTokens": 5, "totalTokens": 9}}}},
+        {"result": result},
+    ]:
+        mapped_events.extend(mapper.map_event(stream_event, timestamp="2026-04-16T12:00:00Z"))
+
+    assert [event.type for event in mapped_events].count(INVOCATION_BEFORE) == 1
+    assert [event.type for event in mapped_events].count(MODEL_CALL_BEFORE) == 2
+    assert [event.type for event in mapped_events].count(MODEL_CALL_AFTER) == 2
+
+
+def test_stream_event_mapper_skips_model_boundaries_for_tool_result_only_cycle() -> None:
+    mapper = StreamEventMapper("sibux_stream", model_id="anthropic/claude-sonnet-4-5")
+    result = AgentResult(
+        stop_reason="end_turn",
+        message={"role": "assistant", "content": [{"text": "done"}]},
+        metrics=EventLoopMetrics(),
+        state={},
+    )
+
+    mapped_events: list[BusEvent] = []
+    for stream_event in [
+        {"start": True},
+        {"start_event_loop": True},
+        {
+            "message": {
+                "role": "user",
+                "content": [
+                    {
+                        "toolResult": {
+                            "toolUseId": "tool-1",
+                            "status": "success",
+                            "content": [{"text": "done"}],
+                        }
+                    }
+                ],
+            }
+        },
+        {"start": True},
+        {"start_event_loop": True},
+        {"event": {"messageStart": {"role": "assistant"}}},
+        {"event": {"messageStop": {"stopReason": "end_turn"}}},
+        {"event": {"metadata": {"usage": {"inputTokens": 4, "outputTokens": 5, "totalTokens": 9}}}},
+        {"result": result},
+    ]:
+        mapped_events.extend(mapper.map_event(stream_event, timestamp="2026-04-16T12:00:00Z"))
+
+    assert [event.type for event in mapped_events] == [
+        INVOCATION_BEFORE,
+        TOOL_EXECUTE_AFTER,
+        MESSAGE_ADDED,
+        MODEL_CALL_BEFORE,
+        MESSAGE_EVENT,
+        MESSAGE_EVENT,
+        INVOCATION_AFTER,
+        MESSAGE_EVENT,
+        MODEL_CALL_AFTER,
+        INVOCATION_RESULT,
+    ]
+    assert mapped_events[1].payload == {"tool_name": None, "tool_use_id": "tool-1", "has_error": False}
+    assert mapped_events[2].payload == {"role": "user", "content_summary": "[tool_result:success] done"}
+    assert mapped_events[3].payload == {"model_id": "anthropic/claude-sonnet-4-5"}
+
+
+def test_stream_event_mapper_skips_model_boundaries_for_tool_only_terminal_cycle() -> None:
+    mapper = StreamEventMapper("sibux_stream", model_id="anthropic/claude-sonnet-4-5")
+    result = AgentResult(
+        stop_reason="interrupt",
+        message={
+            "role": "assistant",
+            "content": [{"toolUse": {"name": "bash", "toolUseId": "tool-1", "input": {}}}],
+        },
+        metrics=EventLoopMetrics(),
+        state={},
+    )
+
+    mapped_events: list[BusEvent] = []
+    for stream_event in [
+        {"start": True},
+        {"start_event_loop": True},
+        {
+            "message": {
+                "role": "user",
+                "content": [
+                    {
+                        "toolResult": {
+                            "toolUseId": "tool-1",
+                            "status": "success",
+                            "content": [{"text": "done"}],
+                        }
+                    }
+                ],
+            }
+        },
+        {"result": result},
+    ]:
+        mapped_events.extend(mapper.map_event(stream_event, timestamp="2026-04-16T12:00:00Z"))
+
+    assert [event.type for event in mapped_events] == [
+        INVOCATION_BEFORE,
+        TOOL_EXECUTE_AFTER,
+        MESSAGE_ADDED,
+        INVOCATION_AFTER,
+        INVOCATION_RESULT,
+    ]
+    assert all(event.type != MODEL_CALL_BEFORE for event in mapped_events)
+    assert all(event.type != MODEL_CALL_AFTER for event in mapped_events)
+
+
+def test_stream_event_mapper_closes_model_call_before_next_cycle_when_usage_missing() -> None:
+    mapper = StreamEventMapper("sibux_stream", model_id="anthropic/claude-sonnet-4-5")
+    result = AgentResult(
+        stop_reason="end_turn",
+        message={"role": "assistant", "content": [{"text": "done"}]},
+        metrics=EventLoopMetrics(),
+        state={},
+    )
+
+    mapped_events: list[BusEvent] = []
+    for stream_event in [
+        {"start": True},
+        {"start_event_loop": True},
+        {"event": {"messageStop": {"stopReason": "tool_use"}}},
+        {
+            "message": {
+                "role": "assistant",
+                "content": [{"toolUse": {"name": "bash", "toolUseId": "tool-1", "input": {}}}],
+            }
+        },
+        {
+            "message": {
+                "role": "user",
+                "content": [
+                    {
+                        "toolResult": {
+                            "toolUseId": "tool-1",
+                            "status": "success",
+                            "content": [{"text": "done"}],
+                        }
+                    }
+                ],
+            }
+        },
+        {"start_event_loop": True},
+        {"data": "done", "delta": {"text": "done"}},
+        {"event": {"metadata": {"usage": {"inputTokens": 4, "outputTokens": 5, "totalTokens": 9}}}},
+        {"result": result},
+    ]:
+        mapped_events.extend(mapper.map_event(stream_event, timestamp="2026-04-16T12:00:00Z"))
+
+    boundary_events = [event for event in mapped_events if event.type in {MODEL_CALL_BEFORE, MODEL_CALL_AFTER}]
+    assert [event.type for event in boundary_events] == [
+        MODEL_CALL_BEFORE,
+        MODEL_CALL_AFTER,
+        MODEL_CALL_BEFORE,
+        MODEL_CALL_AFTER,
+    ]
+    assert boundary_events[1].payload == {"model_id": "anthropic/claude-sonnet-4-5", "usage": {}}
+    assert boundary_events[3].payload == {
+        "model_id": "anthropic/claude-sonnet-4-5",
+        "usage": {"inputTokens": 4, "outputTokens": 5, "totalTokens": 9},
+    }
+
+
+def test_stream_event_mapper_preserves_noncopyable_tool_stream_payloads() -> None:
+    mapper = StreamEventMapper("sibux_stream")
+    tool_chunk = _NonCopyableToolChunk()
+
+    mapped_events = mapper.map_event(
+        {
+            "type": "tool_stream",
+            "tool_stream_event": {
+                "tool_use": {"name": "bash", "toolUseId": "tool-2", "input": {}},
+                "data": tool_chunk,
+            },
+        },
+        timestamp="2026-04-16T12:00:00Z",
+    )
+
+    assert len(mapped_events) == 1
+    assert mapped_events[0].payload["data"] is tool_chunk
+    assert '"data":"tool-stream-chunk"' in encode_sse_event(mapped_events[0])
 
 
 def test_flatten_message_content_summarizes_tool_blocks() -> None:

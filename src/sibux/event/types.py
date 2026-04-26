@@ -120,33 +120,50 @@ def _freeze_mapping(mapping: Mapping[str, Any]) -> Mapping[str, Any]:
 
 def _freeze_value(value: Any) -> Any:
     """Recursively freeze nested payload values."""
-    if isinstance(value, Mapping):
-        return _freeze_mapping(value)
-    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-        return FrozenList(_freeze_value(item) for item in value)
-    return deepcopy(value)
+    try:
+        if isinstance(value, Mapping):
+            return _freeze_mapping(value)
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            return FrozenList(_freeze_value(item) for item in value)
+    except Exception:  # noqa: BLE001
+        return _copy_if_possible(value)
+    return _copy_if_possible(value)
 
 
 def _thaw_value(value: Any) -> Any:
     """Convert frozen payload values back into plain Python containers."""
-    if isinstance(value, Mapping):
-        return {key: _thaw_value(item) for key, item in value.items()}
-    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-        return [_thaw_value(item) for item in value]
-    return deepcopy(value)
+    try:
+        if isinstance(value, Mapping):
+            return {key: _thaw_value(item) for key, item in value.items()}
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            return [_thaw_value(item) for item in value]
+    except Exception:  # noqa: BLE001
+        return _copy_if_possible(value)
+    return _copy_if_possible(value)
 
 
 def _json_safe_value(value: Any) -> Any:
     """Convert thawed payload values into JSON-safe structures."""
-    if isinstance(value, Mapping):
-        return {key: _json_safe_value(item) for key, item in value.items()}
-    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-        return [_json_safe_value(item) for item in value]
-    if isinstance(value, (bytes, bytearray)):
-        return {
-            "__bytes_encoded__": True,
-            "data": base64.b64encode(bytes(value)).decode("utf-8"),
-        }
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
+    try:
+        if isinstance(value, Mapping):
+            return {key: _json_safe_value(item) for key, item in value.items()}
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            return [_json_safe_value(item) for item in value]
+        if isinstance(value, (bytes, bytearray)):
+            return {
+                "__bytes_encoded__": True,
+                "data": base64.b64encode(bytes(value)).decode("utf-8"),
+            }
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return value
+    except Exception:  # noqa: BLE001
+        return str(value)
     return str(value)
+
+
+def _copy_if_possible(value: Any) -> Any:
+    """Return a deep copy when possible, otherwise preserve the original value."""
+    try:
+        return deepcopy(value)
+    except Exception:  # noqa: BLE001
+        return value

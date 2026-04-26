@@ -36,7 +36,8 @@ class StreamEventMapper:
 
     session_id: str
     model_id: str | None = None
-    _pending_invocation_start: bool = field(default=False, init=False)
+    _invocation_started: bool = field(default=False, init=False)
+    _pending_model_call_start: bool = field(default=False, init=False)
     _pending_invocation_after: bool = field(default=False, init=False)
     _pending_model_call_after: bool = field(default=False, init=False)
     _tool_names_by_id: dict[str, str | None] = field(default_factory=dict, init=False)
@@ -46,27 +47,20 @@ class StreamEventMapper:
         mapped_events: list[BusEvent] = []
 
         if event.get("start") is True:
-            if not self._pending_invocation_start:
+            if not self._invocation_started:
                 mapped_events.append(_bus_event(INVOCATION_BEFORE, self.session_id, {}, timestamp=timestamp))
-                self._pending_invocation_start = True
+                self._invocation_started = True
+                self._pending_invocation_after = True
             return mapped_events
 
         if event.get("start_event_loop") is True:
-            mapped_events.append(
-                _bus_event(
-                    MODEL_CALL_BEFORE,
-                    self.session_id,
-                    {"model_id": self.model_id},
-                    timestamp=timestamp,
-                )
-            )
-            self._pending_invocation_start = False
-            self._pending_invocation_after = True
-            self._pending_model_call_after = True
+            self._finish_model_call_if_started(mapped_events, timestamp=timestamp)
+            self._pending_model_call_start = True
             return mapped_events
 
         delta = _mapping(event.get("delta"))
         if isinstance(event.get("data"), str) and isinstance(delta.get("text"), str):
+            self._ensure_model_call_started(mapped_events, timestamp=timestamp)
             mapped_events.append(
                 _bus_event(
                     MESSAGE_TEXT_DELTA,
@@ -78,6 +72,7 @@ class StreamEventMapper:
             return mapped_events
 
         if event.get("type") == "tool_use_stream":
+            self._ensure_model_call_started(mapped_events, timestamp=timestamp)
             current_tool_use = _mapping(event.get("current_tool_use"))
             tool_use_delta = _mapping(delta.get("toolUse"))
             mapped_events.append(
@@ -95,6 +90,7 @@ class StreamEventMapper:
             return mapped_events
 
         if event.get("reasoning") is True and isinstance(event.get("reasoningText"), str):
+            self._ensure_model_call_started(mapped_events, timestamp=timestamp)
             mapped_events.append(
                 _bus_event(
                     MESSAGE_REASONING_DELTA,
@@ -106,6 +102,7 @@ class StreamEventMapper:
             return mapped_events
 
         if "event" in event:
+            self._ensure_model_call_started(mapped_events, timestamp=timestamp)
             raw_event = _mapping(event.get("event"))
             mapped_events.append(
                 _bus_event(
@@ -120,6 +117,10 @@ class StreamEventMapper:
 
         if "message" in event and isinstance(event["message"], Mapping):
             message = cast(Message, event["message"])
+            if message.get("role") == "assistant":
+                self._ensure_model_call_started(mapped_events, timestamp=timestamp)
+            elif _message_has_tool_result(message):
+                self._mark_tool_only_cycle_if_pending()
             mapped_events.extend(self._map_message_event(message, timestamp=timestamp))
             mapped_events.append(
                 _bus_event(
@@ -135,6 +136,7 @@ class StreamEventMapper:
             return mapped_events
 
         if event.get("type") == "tool_stream":
+            self._mark_tool_only_cycle_if_pending()
             tool_stream_event = _mapping(event.get("tool_stream_event"))
             tool_use = _mapping(tool_stream_event.get("tool_use"))
             mapped_events.append(
@@ -152,6 +154,7 @@ class StreamEventMapper:
             return mapped_events
 
         if "tool_cancel_event" in event:
+            self._mark_tool_only_cycle_if_pending()
             tool_cancel_event = _mapping(event.get("tool_cancel_event"))
             tool_use = _mapping(tool_cancel_event.get("tool_use"))
             mapped_events.append(
@@ -170,6 +173,9 @@ class StreamEventMapper:
 
         result = event.get("result")
         if isinstance(result, AgentResult):
+            if result.message.get("role") == "assistant" and not _message_has_tool_use(result.message):
+                self._ensure_model_call_started(mapped_events, timestamp=timestamp)
+
             if self._pending_invocation_after:
                 mapped_events.append(
                     _bus_event(
@@ -209,6 +215,55 @@ class StreamEventMapper:
             )
 
         return mapped_events
+
+    def _ensure_model_call_started(
+        self,
+        mapped_events: list[BusEvent],
+        *,
+        timestamp: str | None = None,
+    ) -> None:
+        """Emit ``model.call.before`` once a cycle shows concrete model output."""
+        if not self._pending_model_call_start or self._pending_model_call_after:
+            return
+
+        mapped_events.append(
+            _bus_event(
+                MODEL_CALL_BEFORE,
+                self.session_id,
+                {"model_id": self.model_id},
+                timestamp=timestamp,
+            )
+        )
+        self._pending_model_call_start = False
+        self._pending_model_call_after = True
+
+    def _finish_model_call_if_started(
+        self,
+        mapped_events: list[BusEvent],
+        *,
+        timestamp: str | None = None,
+    ) -> None:
+        """Emit fallback ``model.call.after`` for a started call with no usage event."""
+        if not self._pending_model_call_after:
+            return
+
+        mapped_events.append(
+            _bus_event(
+                MODEL_CALL_AFTER,
+                self.session_id,
+                {
+                    "model_id": self.model_id,
+                    "usage": {},
+                },
+                timestamp=timestamp,
+            )
+        )
+        self._pending_model_call_after = False
+
+    def _mark_tool_only_cycle_if_pending(self) -> None:
+        """Drop a pending model start when the cycle proceeds directly to tools."""
+        if self._pending_model_call_start and not self._pending_model_call_after:
+            self._pending_model_call_start = False
 
     def _map_raw_event(self, raw_event: Mapping[str, Any], *, timestamp: str | None = None) -> list[BusEvent]:
         mapped_events: list[BusEvent] = []
@@ -369,6 +424,14 @@ def _mapping(value: object) -> Mapping[str, Any]:
     if isinstance(value, Mapping):
         return cast(Mapping[str, Any], value)
     return {}
+
+
+def _message_has_tool_result(message: Message) -> bool:
+    return any(bool(_mapping(block).get("toolResult")) for block in message.get("content", []))
+
+
+def _message_has_tool_use(message: Message) -> bool:
+    return any(bool(_mapping(block).get("toolUse")) for block in message.get("content", []))
 
 
 def _serialize_tool_input(value: object) -> str:
