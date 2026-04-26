@@ -211,6 +211,35 @@ class TestResolveModel:
         except Exception:
             pass  # provider import may fail in test env
 
+    def test_moonshot_provider_uses_moonshot_model(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Moonshot provider resolves to MoonshotKimiModel."""
+        import sys
+        import types
+
+        from sibux.agent.agent_factory import _resolve_model
+
+        class FakeMoonshotKimiModel:
+            def __init__(self, **kwargs) -> None:
+                self.kwargs = kwargs
+
+        fake_module = types.ModuleType("strands.models.moonshot")
+        fake_module.MoonshotKimiModel = FakeMoonshotKimiModel
+        monkeypatch.setitem(sys.modules, "strands.models.moonshot", fake_module)
+
+        d = default_config_dict()
+        d["default_model"] = "moonshot/kimi-k2-0711-preview"
+        d["provider"] = {"moonshot": {"api_key": "test-key", "base_url": "https://api.moonshot.ai/v1"}}
+        config = Config.model_validate(d)
+        agent_cfg = config.agents["build"]
+
+        model = _resolve_model(config, agent_cfg)
+
+        assert isinstance(model, FakeMoonshotKimiModel)
+        assert model.kwargs == {
+            "model_id": "kimi-k2-0711-preview",
+            "client_args": {"api_key": "test-key", "base_url": "https://api.moonshot.ai/v1"},
+        }
+
     def test_direct_provider_model_string(self, caplog) -> None:
         """Direct 'provider/model' string bypasses the model dict."""
         import logging

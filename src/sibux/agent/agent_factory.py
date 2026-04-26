@@ -269,5 +269,31 @@ def _resolve_model(config: Config, agent_config: AgentConfig) -> Any:
             litellm_kwargs["base_url"] = base_url
         return LiteLLMModel(**litellm_kwargs)
 
+    if provider_id == "moonshot":
+        from strands.models.moonshot import MoonshotKimiModel
+
+        moonshot_client_args: dict[str, Any] = {}
+        if api_key:
+            moonshot_client_args["api_key"] = api_key
+        if base_url:
+            moonshot_client_args["base_url"] = base_url
+        moonshot_params: dict[str, Any] = {}
+        if final_temperature is not None:
+            moonshot_params["temperature"] = final_temperature
+        if final_max_tokens is not None:
+            moonshot_params["max_tokens"] = final_max_tokens
+        if final_top_p is not None:
+            moonshot_params["top_p"] = final_top_p
+        if final_top_k is not None:
+            moonshot_params["top_k"] = final_top_k
+        if final_extra:
+            moonshot_params.update(final_extra)
+        moonshot_kwargs: dict[str, Any] = {"model_id": model_id}
+        if moonshot_client_args:
+            moonshot_kwargs["client_args"] = moonshot_client_args
+        if moonshot_params:
+            moonshot_kwargs["params"] = moonshot_params
+        return MoonshotKimiModel(**moonshot_kwargs)
+
     logger.warning("provider_id=<%s> | unknown provider, falling back to Strands default", provider_id)
     return None
