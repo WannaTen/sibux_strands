@@ -60,7 +60,7 @@ uv run mypy src/sibux/            # Type check
 
 ## Key Design Decisions
 
-- **Config format**: Models are `"provider/model_id"` strings (e.g., `"anthropic/claude-sonnet-4-5"`).
+- **Config format**: Model aliases contain explicit `provider` and `model` fields; `model` is passed directly as the downstream model_id.
 - **Permission system**: Last-match-wins; default is allow-all if no rules set.
 - **System prompt order**: agent prompt → project instructions → environment context.
 - **Tool filtering**: Applied at agent construction time from permission rules.

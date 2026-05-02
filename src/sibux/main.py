@@ -57,7 +57,7 @@ def main() -> None:
     if active_session.restore_error:
         print(f"session restore failed: {active_session.restore_error}")
 
-    resolved_model = agent_config.model or config.default_model
+    resolved_model = _resolve_configured_model_id(config, agent_config)
     print(f"model: {resolved_model}")
     _print_session_banner(active_session)
 
@@ -107,6 +107,19 @@ def _create_primary_agent(config: Config, agent_config: AgentConfig, active_sess
         session_manager=active_session.session_manager,
         agent_id=active_session.agent_id,
     )
+
+
+def _resolve_configured_model_id(config: Config, agent_config: AgentConfig) -> str | None:
+    """Resolve the configured downstream model id for display."""
+    model_ref = agent_config.model or config.default_model
+    if model_ref is None:
+        return None
+
+    model_config = config.model.get(model_ref)
+    if model_config is None:
+        return None
+
+    return model_config.model
 
 
 def _create_session_bus(active_session: ActiveSession, global_bus: GlobalBus) -> Bus:

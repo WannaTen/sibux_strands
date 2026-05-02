@@ -14,7 +14,7 @@ import os
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 
 from strands import _identifier
 
@@ -44,12 +44,13 @@ class ProviderConfig(BaseModel):
 class ModelConfig(BaseModel):
     """Configuration for a named model.
 
-    Defines a reusable model reference with its parameters. Agents and
-    default_model can reference this by name instead of repeating the
-    provider/model string and parameters everywhere.
+    Defines a reusable model reference with its provider and parameters.
+    Agents and default_model can reference this by name instead of repeating
+    provider, model id, and parameters everywhere.
 
     Attributes:
-        model: Model reference in "provider/model_id" format (required).
+        provider: Provider identifier used to construct the model.
+        model: Model identifier passed directly to the downstream model_id.
         temperature: Sampling temperature.
         max_tokens: Maximum output tokens.
         top_p: Nucleus sampling parameter.
@@ -57,12 +58,24 @@ class ModelConfig(BaseModel):
         extra: Additional provider-specific parameters.
     """
 
+    provider: str
     model: str
     temperature: float | None = None
     max_tokens: int | None = None
     top_p: float | None = None
     top_k: int | None = None
     extra: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("provider", "model")
+    @classmethod
+    def validate_non_empty_string(cls, value: str, info: ValidationInfo) -> str:
+        """Validate model provider and id fields."""
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError(f"model {info.field_name} must be a non-empty string")
+        if info.field_name == "provider":
+            return stripped.lower()
+        return stripped
 
 
 class SessionConfig(BaseModel):
@@ -104,8 +117,8 @@ class AgentConfig(BaseModel):
             the task tool. The task tool refuses to call primary agents.
         permission: Ordered list of permission rules. Evaluated with
             last-match-wins semantics.
-        model: Model reference in "provider/model" format (e.g., "anthropic/claude-opus-4-5").
-            Falls back to the default model when None.
+        model: Name of a configured model alias. Falls back to the default
+            model when None.
         prompt: Agent-specific system prompt fragment appended after base prompt.
         temperature: Sampling temperature override.
         max_tokens: Maximum output tokens override.
@@ -132,11 +145,11 @@ class Config(BaseModel):
     Attributes:
         provider: Provider credentials keyed by provider_id (e.g., "anthropic").
         model: Named model configurations keyed by a short alias (e.g., "sonnet").
-            Each entry combines a "provider/model_id" string with optional params.
+            Each entry combines a provider, model id, and optional params.
         agents: Named agent configurations.
         default_agent: Name of the agent used when none is specified.
-        default_model: Name of a key in ``model``, or a direct "provider/model_id"
-            string. Used when an agent has no model set.
+        default_model: Name of a key in ``model`` used when an agent has no
+            model set.
         instructions: List of file paths whose contents are appended to the
             system prompt as project-level instructions.
         permission: Global permission rules applied before agent-level rules.
@@ -151,6 +164,22 @@ class Config(BaseModel):
     instructions: list[str] = Field(default_factory=list)
     permission: list[PermissionRule] = Field(default_factory=list)
     session: SessionConfig = Field(default_factory=SessionConfig)
+
+    @model_validator(mode="after")
+    def validate_model_references(self) -> Config:
+        """Validate that model references point to configured aliases."""
+        if self.default_model is not None and self.default_model not in self.model:
+            raise ValueError(f"default_model must reference a configured model alias: {self.default_model}")
+
+        for agent_name, agent_config in self.agents.items():
+            if agent_config.model is not None and agent_config.model not in self.model:
+                message = (
+                    "agent model must reference a configured model alias: "
+                    f"agent={agent_name}, model={agent_config.model}"
+                )
+                raise ValueError(message)
+
+        return self
 
 
 def load_config(cwd: str | None = None) -> Config:

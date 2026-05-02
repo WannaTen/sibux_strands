@@ -9,8 +9,16 @@ Example full config with provider and model options:
             "anthropic": {"api_key": "sk-..."}
         },
         "model": {
-            "opus":   {"model": "anthropic/claude-opus-4-5",   "max_tokens": 8192},
-            "sonnet": {"model": "anthropic/claude-sonnet-4-5", "max_tokens": 8192}
+            "opus": {
+                "provider": "anthropic",
+                "model": "claude-opus-4-5",
+                "max_tokens": 8192,
+            },
+            "sonnet": {
+                "provider": "anthropic",
+                "model": "claude-sonnet-4-5",
+                "max_tokens": 8192,
+            },
         },
         "default_model": "sonnet",
         "agents": {

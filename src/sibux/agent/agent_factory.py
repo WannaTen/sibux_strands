@@ -132,9 +132,8 @@ def _resolve_model(config: Config, agent_config: AgentConfig) -> Any:
       2. Config default_model
       3. Strands SDK default (BedrockModel)
 
-    The model reference is either a name in config.model (e.g., "sonnet") or a
-    direct "provider/model_id" string (e.g., "anthropic/claude-sonnet-4-5").
-    When it is a named model, its parameters are used as defaults, which the
+    The model reference is the name of a configured model alias in
+    ``config.model``. The alias parameters are used as defaults, which the
     agent-level temperature/max_tokens can still override.
 
     Args:
@@ -148,44 +147,27 @@ def _resolve_model(config: Config, agent_config: AgentConfig) -> Any:
     if ref is None:
         return None  # Strands defaults to BedrockModel
 
-    # Resolve named model alias from config.model dict
     model_cfg = config.model.get(ref)
-    if model_cfg is not None:
-        model_str = model_cfg.model
-        model_options = model_cfg
-    else:
-        model_str = ref
-        model_options = None
-
-    # Parse "provider/model_id" format
-    if "/" not in model_str:
-        logger.error("model=<%s> | invalid model format, expected 'provider/model'", model_str)
+    if model_cfg is None:
+        logger.error("model=<%s> | model alias is not configured", ref)
         return None
 
-    provider_id, model_id = model_str.split("/", 1)
-    provider_id = provider_id.lower()
+    provider_id = model_cfg.provider
+    model_id = model_cfg.model
     provider_cfg = config.provider.get(provider_id, None)
 
     # Determine final parameters: agent overrides named model config
-    final_temperature = (
-        agent_config.temperature
-        if agent_config.temperature is not None
-        else (model_options.temperature if model_options else None)
-    )
-    final_max_tokens = (
-        agent_config.max_tokens
-        if agent_config.max_tokens is not None
-        else (model_options.max_tokens if model_options else None)
-    )
-    final_top_p = model_options.top_p if model_options else None
-    final_top_k = model_options.top_k if model_options else None
-    final_extra = model_options.extra if model_options else {}
+    final_temperature = agent_config.temperature if agent_config.temperature is not None else model_cfg.temperature
+    final_max_tokens = agent_config.max_tokens if agent_config.max_tokens is not None else model_cfg.max_tokens
+    final_top_p = model_cfg.top_p
+    final_top_k = model_cfg.top_k
+    final_extra = model_cfg.extra
 
     # Get provider credentials
     api_key = provider_cfg.api_key if provider_cfg else None
     base_url = provider_cfg.base_url if provider_cfg else None
 
-    if provider_id == "anthropic":
+    if provider_id == "anthropic" or provider_id == "ant-moonshot":
         from strands.models.anthropic import AnthropicModel
 
         # max_tokens and model_id are top-level kwargs; temperature etc. go in params

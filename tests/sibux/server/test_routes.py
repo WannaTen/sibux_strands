@@ -13,20 +13,20 @@ from sibux.session import SessionService
 
 
 def _build_config() -> Config:
-    """Create a config with multiple configured provider/model references."""
+    """Create a config with multiple configured model aliases."""
     config_dict = default_config_dict()
     config_dict["default_agent"] = "build"
     config_dict["default_model"] = "sonnet"
     config_dict["model"] = {
-        "sonnet": {"model": "anthropic/claude-sonnet-4-5"},
-        "haiku": {"model": "anthropic/claude-haiku-3-5"},
-        "gpt5": {"model": "openai/gpt-5.1"},
+        "sonnet": {"provider": "anthropic", "model": "claude-sonnet-4-5"},
+        "haiku": {"provider": "anthropic", "model": "claude-haiku-3-5"},
+        "gpt5": {"provider": "openai", "model": "gpt-5.1"},
     }
     config_dict["agents"]["build"]["model"] = "gpt5"
     config_dict["agents"]["review"] = {
         "name": "review",
         "mode": "primary",
-        "model": "anthropic/claude-haiku-3-5",
+        "model": "haiku",
         "prompt": "Review code.",
         "permission": [{"permission": "*", "pattern": "*", "action": "allow"}],
     }

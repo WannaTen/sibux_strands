@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from sibux.config.config import _merge_into, find_project_root, load_config, validate_agent_name
+from sibux.config.config import Config, _merge_into, find_project_root, load_config, validate_agent_name
 from sibux.config.defaults import default_config_dict
 
 
@@ -60,11 +60,53 @@ class TestMergeInto:
         assert base["agents"]["custom"]["mode"] == "subagent"
 
     def test_model_dict_merged_by_key(self) -> None:
-        base: dict[str, Any] = {"model": {"sonnet": {"model": "anthropic/claude-sonnet-4-5", "max_tokens": 8192}}}
-        _merge_into(base, {"model": {"sonnet": {"max_tokens": 4096}, "haiku": {"model": "anthropic/claude-haiku-3-5"}}})
-        assert base["model"]["sonnet"]["model"] == "anthropic/claude-sonnet-4-5"
+        base: dict[str, Any] = {
+            "model": {"sonnet": {"provider": "anthropic", "model": "claude-sonnet-4-5", "max_tokens": 8192}}
+        }
+        _merge_into(
+            base,
+            {
+                "model": {
+                    "sonnet": {"max_tokens": 4096},
+                    "haiku": {"provider": "anthropic", "model": "claude-haiku-3-5"},
+                }
+            },
+        )
+        assert base["model"]["sonnet"]["provider"] == "anthropic"
+        assert base["model"]["sonnet"]["model"] == "claude-sonnet-4-5"
         assert base["model"]["sonnet"]["max_tokens"] == 4096
-        assert base["model"]["haiku"]["model"] == "anthropic/claude-haiku-3-5"
+        assert base["model"]["haiku"]["model"] == "claude-haiku-3-5"
+
+
+class TestModelConfig:
+    def test_model_requires_provider(self) -> None:
+        config_dict = default_config_dict()
+        config_dict["model"] = {"sonnet": {"model": "claude-sonnet-4-5"}}
+
+        with pytest.raises(ValidationError, match="provider"):
+            Config.model_validate(config_dict)
+
+    def test_model_provider_is_normalized(self) -> None:
+        config_dict = default_config_dict()
+        config_dict["model"] = {"sonnet": {"provider": "Anthropic", "model": "claude-sonnet-4-5"}}
+
+        config = Config.model_validate(config_dict)
+
+        assert config.model["sonnet"].provider == "anthropic"
+
+    def test_default_model_must_reference_configured_alias(self) -> None:
+        config_dict = default_config_dict()
+        config_dict["default_model"] = "anthropic/claude-sonnet-4-5"
+
+        with pytest.raises(ValidationError, match="default_model must reference a configured model alias"):
+            Config.model_validate(config_dict)
+
+    def test_agent_model_must_reference_configured_alias(self) -> None:
+        config_dict = default_config_dict()
+        config_dict["agents"]["build"]["model"] = "missing"
+
+        with pytest.raises(ValidationError, match="agent model must reference a configured model alias"):
+            Config.model_validate(config_dict)
 
 
 class TestHelpers:

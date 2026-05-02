@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from pydantic import ValidationError
 
 from sibux.agent.agent_factory import create
 from sibux.agent.system_prompt import _build_environment_section, build_system_prompt
@@ -61,7 +62,7 @@ class TestSystemPrompt:
 class TestAgentFactory:
     def _config_with_default_model(self) -> Config:
         d = default_config_dict()
-        d["model"] = {"opus": {"model": "anthropic/claude-opus-4-5", "max_tokens": 8192}}
+        d["model"] = {"opus": {"provider": "anthropic", "model": "claude-opus-4-5", "max_tokens": 8192}}
         d["default_model"] = "opus"
         d["provider"] = {"anthropic": {"api_key": "test-key"}}
         return Config.model_validate(d)
@@ -199,7 +200,7 @@ class TestResolveModel:
         from sibux.agent.agent_factory import _resolve_model
 
         d = default_config_dict()
-        d["model"] = {"sonnet": {"model": "anthropic/claude-sonnet-4-5", "max_tokens": 8192}}
+        d["model"] = {"sonnet": {"provider": "anthropic", "model": "claude-sonnet-4-5", "max_tokens": 8192}}
         d["default_model"] = "sonnet"
         config = Config.model_validate(d)
         agent_cfg = config.agents["build"]
@@ -227,7 +228,8 @@ class TestResolveModel:
         monkeypatch.setitem(sys.modules, "strands.models.moonshot", fake_module)
 
         d = default_config_dict()
-        d["default_model"] = "moonshot/kimi-k2-0711-preview"
+        d["model"] = {"kimi": {"provider": "moonshot", "model": "moonshot/kimi-for-coding"}}
+        d["default_model"] = "kimi"
         d["provider"] = {"moonshot": {"api_key": "test-key", "base_url": "https://api.moonshot.ai/v1"}}
         config = Config.model_validate(d)
         agent_cfg = config.agents["build"]
@@ -236,49 +238,48 @@ class TestResolveModel:
 
         assert isinstance(model, FakeMoonshotKimiModel)
         assert model.kwargs == {
-            "model_id": "kimi-k2-0711-preview",
+            "model_id": "moonshot/kimi-for-coding",
             "client_args": {"api_key": "test-key", "base_url": "https://api.moonshot.ai/v1"},
         }
 
-    def test_direct_provider_model_string(self, caplog) -> None:
-        """Direct 'provider/model' string bypasses the model dict."""
-        import logging
-
-        from sibux.agent.agent_factory import _resolve_model
-
+    def test_direct_provider_model_string_is_not_accepted(self) -> None:
+        """Direct 'provider/model' strings are not parsed as model aliases."""
         d = default_config_dict()
         d["default_model"] = "unknown-provider/some-model"
-        config = Config.model_validate(d)
-        agent_cfg = config.agents["build"]
 
-        with caplog.at_level(logging.WARNING):
-            model = _resolve_model(config, agent_cfg)
+        with pytest.raises(ValidationError, match="default_model must reference a configured model alias"):
+            Config.model_validate(d)
 
-        assert model is None
-        assert "unknown provider" in caplog.text
-
-    def test_invalid_model_format_logs_error(self, caplog) -> None:
-        """A model string with no slash logs an error."""
+    def test_unconfigured_model_alias_logs_error(self, caplog) -> None:
+        """An unconfigured model alias logs an error."""
         import logging
 
         from sibux.agent.agent_factory import _resolve_model
 
         d = default_config_dict()
-        # Use a name not in config.model and with no slash
-        d["default_model"] = "invalid-no-slash"
+        d["model"] = {"sonnet": {"provider": "anthropic", "model": "claude-sonnet-4-5"}}
+        d["default_model"] = "sonnet"
         config = Config.model_validate(d)
+        config.default_model = "invalid-no-slash"
         agent_cfg = config.agents["build"]
 
         with caplog.at_level(logging.ERROR):
             model = _resolve_model(config, agent_cfg)
 
         assert model is None
-        assert "invalid model format" in caplog.text
+        assert "model alias is not configured" in caplog.text
 
     def test_agent_params_override_model_config(self) -> None:
         """Agent-level temperature/max_tokens override named model defaults."""
         d = default_config_dict()
-        d["model"] = {"sonnet": {"model": "anthropic/claude-sonnet-4-5", "temperature": 0.3, "max_tokens": 4096}}
+        d["model"] = {
+            "sonnet": {
+                "provider": "anthropic",
+                "model": "claude-sonnet-4-5",
+                "temperature": 0.3,
+                "max_tokens": 4096,
+            }
+        }
         d["agents"]["build"]["temperature"] = 0.9
         d["agents"]["build"]["max_tokens"] = 1024
         d["agents"]["build"]["model"] = "sonnet"

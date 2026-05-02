@@ -20,7 +20,8 @@ from strands.telemetry.metrics import EventLoopMetrics
 def _build_config() -> Config:
     """Create a baseline config for CLI tests."""
     config_dict = default_config_dict()
-    config_dict["default_model"] = "anthropic/claude-sonnet-4-5"
+    config_dict["default_model"] = "sonnet"
+    config_dict["model"] = {"sonnet": {"provider": "anthropic", "model": "claude-sonnet-4-5"}}
     return Config.model_validate(config_dict)
 
 
@@ -107,7 +108,7 @@ class TestMain:
             session_manager=active_session.session_manager,
             agent_id=active_session.agent_id,
         )
-        assert "model: anthropic/claude-sonnet-4-5" in stdout
+        assert "model: claude-sonnet-4-5" in stdout
         assert "session: sibux_123 (resumed)" in stdout
         assert "storage: /tmp/test-project/.sibux/session/strands" in stdout
 

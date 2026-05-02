@@ -183,7 +183,7 @@ async def stream_events(request: Request) -> StreamingResponse:
 
 @router.get("/provider", response_model=list[ProviderResponse])
 def list_providers(request: Request) -> list[ProviderResponse]:
-    """Return the configured provider/model pairs available to the server."""
+    """Return the configured provider and model ids available to the server."""
     return _list_provider_models(_get_config(request))
 
 
@@ -277,7 +277,7 @@ def _resolve_primary_agent_name(config: Config, requested_agent_name: str | None
 
 
 def _resolve_agent_model_id(config: Config, agent_name: str) -> str | None:
-    """Resolve the configured model reference for one agent."""
+    """Resolve the downstream model id configured for one agent."""
     agent_config = config.agents.get(agent_name)
     if agent_config is None:
         return None
@@ -286,45 +286,21 @@ def _resolve_agent_model_id(config: Config, agent_name: str) -> str | None:
     if model_ref is None:
         return None
 
-    return _resolve_model_reference(config, model_ref) or model_ref
-
-
-def _list_provider_models(config: Config) -> list[ProviderResponse]:
-    """Collect unique provider/model ids from the current config."""
-    grouped_models: dict[str, set[str]] = {}
-
-    for model_ref in _iter_model_references(config):
-        resolved_ref = _resolve_model_reference(config, model_ref)
-        if resolved_ref is None:
-            continue
-
-        provider_id, model_id = resolved_ref.split("/", 1)
-        grouped_models.setdefault(provider_id, set()).add(model_id)
-
-    return [
-        ProviderResponse(provider=provider_id, models=sorted(grouped_models[provider_id]))
-        for provider_id in sorted(grouped_models)
-    ]
-
-
-def _iter_model_references(config: Config) -> list[str]:
-    """Return model references declared across config defaults and agents."""
-    model_refs = [model_config.model for model_config in config.model.values()]
-
-    if config.default_model is not None:
-        model_refs.append(config.default_model)
-
-    model_refs.extend(agent_config.model for agent_config in config.agents.values() if agent_config.model is not None)
-    return model_refs
-
-
-def _resolve_model_reference(config: Config, model_ref: str) -> str | None:
-    """Resolve a named model alias to a concrete ``provider/model_id`` string."""
-    if "/" in model_ref:
-        return model_ref
-
     model_config = config.model.get(model_ref)
     if model_config is None:
         return None
 
     return model_config.model
+
+
+def _list_provider_models(config: Config) -> list[ProviderResponse]:
+    """Collect unique provider and model ids from the current config."""
+    grouped_models: dict[str, set[str]] = {}
+
+    for model_config in config.model.values():
+        grouped_models.setdefault(model_config.provider, set()).add(model_config.model)
+
+    return [
+        ProviderResponse(provider=provider_id, models=sorted(grouped_models[provider_id]))
+        for provider_id in sorted(grouped_models)
+    ]

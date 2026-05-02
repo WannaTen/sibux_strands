@@ -14,7 +14,13 @@ export ANTHROPIC_API_KEY=sk-...
 # Create project config
 mkdir .sibux && cat > .sibux/config.json << 'EOF'
 {
-  "default_model": "anthropic/claude-sonnet-4-5"
+  "default_model": "sonnet",
+  "model": {
+    "sonnet": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-5"
+    }
+  }
 }
 EOF
 
@@ -65,7 +71,13 @@ Config is loaded and merged in order (later sources win):
 
 ```json
 {
-  "default_model": "anthropic/claude-sonnet-4-5"
+  "default_model": "sonnet",
+  "model": {
+    "sonnet": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-5"
+    }
+  }
 }
 ```
 
@@ -73,25 +85,36 @@ Config is loaded and merged in order (later sources win):
 
 ```json
 {
-  "default_model": "anthropic/claude-sonnet-4-5",
+  "default_model": "sonnet",
   "default_agent": "build",
   "provider": {
     "anthropic": {
-      "api_key": "sk-...",
-      "models": {
-        "claude-opus-4-5": {
-          "max_tokens": 32000
-        }
-      }
+      "api_key": "sk-..."
     },
     "openai": {
       "api_key": "sk-...",
       "base_url": "https://api.openai.com/v1"
     }
   },
+  "model": {
+    "sonnet": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-5",
+      "max_tokens": 32000
+    },
+    "opus": {
+      "provider": "anthropic",
+      "model": "claude-opus-4-5",
+      "max_tokens": 32000
+    },
+    "gpt4o": {
+      "provider": "openai",
+      "model": "gpt-4o"
+    }
+  },
   "agents": {
     "build": {
-      "model": "anthropic/claude-opus-4-5",
+      "model": "opus",
       "temperature": 0.8
     }
   }
@@ -100,16 +123,16 @@ Config is loaded and merged in order (later sources win):
 
 ### Model format
 
-Models are specified as `"provider/model_id"`. Supported providers:
+Models are named aliases under `model`. Each alias has a `provider` and a `model`; the `model` value is passed directly to the downstream provider as `model_id`.
 
 | Provider | Example |
 |----------|---------|
-| `anthropic` | `anthropic/claude-sonnet-4-5` |
-| `openai` | `openai/gpt-4o` |
-| `openai-compatible` | `openai-compatible/my-model` |
-| `bedrock` | `bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0` |
-| `ollama` | `ollama/llama3.2` |
-| `litellm` | `litellm/openai/gpt-4o` |
+| `anthropic` | `{"provider": "anthropic", "model": "claude-sonnet-4-5"}` |
+| `openai` | `{"provider": "openai", "model": "gpt-4o"}` |
+| `openai-compatible` | `{"provider": "openai-compatible", "model": "my-model"}` |
+| `bedrock` | `{"provider": "bedrock", "model": "anthropic.claude-3-5-sonnet-20241022-v2:0"}` |
+| `ollama` | `{"provider": "ollama", "model": "llama3.2"}` |
+| `litellm` | `{"provider": "litellm", "model": "openai/gpt-4o"}` |
 
 ## Built-in Agents
 
@@ -141,7 +164,7 @@ Add custom agents under `agents`. The `model`, `temperature`, and `max_tokens` f
     "reviewer": {
       "name": "reviewer",
       "mode": "primary",
-      "model": "anthropic/claude-haiku-3-5",
+      "model": "haiku",
       "prompt": "You are a code reviewer. Be concise and direct.",
       "permission": [
         {"permission": "*", "pattern": "*", "action": "deny"},
@@ -149,6 +172,12 @@ Add custom agents under `agents`. The `model`, `temperature`, and `max_tokens` f
         {"permission": "grep", "pattern": "*", "action": "allow"},
         {"permission": "glob_tool", "pattern": "*", "action": "allow"}
       ]
+    }
+  },
+  "model": {
+    "haiku": {
+      "provider": "anthropic",
+      "model": "claude-haiku-3-5"
     }
   },
   "default_agent": "reviewer"
