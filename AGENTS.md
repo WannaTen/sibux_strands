@@ -156,6 +156,7 @@ strands-agents/
 │   ├── AGENTS.md                         # Sibux-specific instructions
 │   ├── README.md                         # Sibux package notes
 │   ├── agent/                            # Agent assembly and prompts
+│   ├── cli/                              # CLI entry point and terminal rendering
 │   ├── config/                           # Config schema and loading
 │   ├── event/                            # Session/global buses + stream-event mapping
 │   ├── hooks/                            # Sibux hook providers and prompt transforms
@@ -163,8 +164,7 @@ strands-agents/
 │   ├── server/                           # FastAPI app and streaming HTTP routes
 │   ├── permission/                       # Tool permission filtering
 │   ├── tools/                            # Sibux tool implementations
-│   ├── __init__.py                       # Package marker
-│   └── main.py                           # CLI entry point
+│   └── __init__.py                       # Package marker
 │
 ├── tests/                                # Unit tests (mirrors src/)
 │   ├── conftest.py                       # Pytest fixtures
@@ -188,6 +188,7 @@ strands-agents/
 │       └── utils/
 │   └── sibux/                            # Tests mirror src/sibux/
 │       ├── agent/
+│       ├── cli/
 │       ├── config/
 │       ├── event/
 │       ├── hooks/

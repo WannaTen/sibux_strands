@@ -74,7 +74,7 @@ Documentation = "https://strandsagents.com"
 
 
 [project.scripts]
-sibux = "sibux.main:main"
+sibux = "sibux.cli.main:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/strands", "src/sibux"]

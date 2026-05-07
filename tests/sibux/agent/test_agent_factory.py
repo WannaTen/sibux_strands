@@ -11,6 +11,7 @@ from sibux.agent.system_prompt import _build_environment_section, build_system_p
 from sibux.config.config import AgentConfig, Config
 from sibux.config.defaults import default_config_dict
 from sibux.hooks import SibuxHookProvider
+from strands.handlers.callback_handler import null_callback_handler
 
 
 class TestSystemPrompt:
@@ -91,6 +92,7 @@ class TestAgentFactory:
         assert call_kwargs["session_manager"] is session_manager
         assert call_kwargs["agent_id"] == "build"
         assert call_kwargs["context_manager"] is context_manager
+        assert call_kwargs["callback_handler"] is null_callback_handler
 
     def test_create_without_session_seam_keeps_default_stateless_path(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

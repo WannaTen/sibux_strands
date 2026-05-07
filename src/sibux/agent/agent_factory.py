@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 import strands
-from strands.handlers.callback_handler import PrintingCallbackHandler
+from strands.handlers.callback_handler import null_callback_handler
 
 from ..hooks.types import SystemPromptTransformProvider
 from ..permission.permission import filter_tools
@@ -82,7 +82,7 @@ def create(
         "model": model,
         "tools": tools,
         "system_prompt": system_prompt,
-        "callback_handler": PrintingCallbackHandler(),
+        "callback_handler": null_callback_handler,
     }
     if session_manager is not None:
         agent_kwargs["session_manager"] = session_manager

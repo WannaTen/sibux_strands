@@ -12,6 +12,10 @@ src/sibux/
 ├── agent/
 │   ├── agent_factory.py    # Creates Strands Agent from AgentConfig
 │   └── system_prompt.py    # Builds layered system prompt
+├── cli/
+│   ├── __init__.py         # CLI package marker
+│   ├── main.py             # CLI REPL entry point
+│   └── terminal.py         # BusEvent -> categorized terminal output
 ├── config/
 │   ├── config.py           # Pydantic config models + load_config()
 │   └── defaults.py         # Built-in agent definitions
@@ -43,7 +47,6 @@ src/sibux/
 │   ├── grep.py             # Content search
 │   ├── task.py             # Subagent delegation
 │   └── truncation.py       # Output size limiting
-└── main.py                 # CLI REPL entry point
 ```
 
 ## Development

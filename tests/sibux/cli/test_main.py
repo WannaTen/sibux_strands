@@ -9,10 +9,10 @@ from unittest.mock import ANY, patch
 
 import pytest
 
+from sibux.cli.main import main
 from sibux.config.config import Config
 from sibux.config.defaults import default_config_dict
 from sibux.event import INVOCATION_RESULT, MESSAGE_TEXT_DELTA, GlobalBus
-from sibux.main import main
 from strands.agent.agent_result import AgentResult
 from strands.telemetry.metrics import EventLoopMetrics
 
@@ -81,13 +81,13 @@ class TestMain:
     ) -> None:
         config = _build_config()
         active_session = _active_session(session_id="sibux_123", resumed=True)
-        monkeypatch.setattr("sibux.main.sys.argv", ["sibux"])
+        monkeypatch.setattr("sibux.cli.main.sys.argv", ["sibux"])
         monkeypatch.setattr("builtins.input", lambda _: "exit")
 
         with (
-            patch("sibux.main.load_config", return_value=config) as load_config_mock,
-            patch("sibux.main.SessionService") as session_service_cls,
-            patch("sibux.main.create", return_value=object()) as create_mock,
+            patch("sibux.cli.main.load_config", return_value=config) as load_config_mock,
+            patch("sibux.cli.main.SessionService") as session_service_cls,
+            patch("sibux.cli.main.create", return_value=object()) as create_mock,
         ):
             session_service = session_service_cls.return_value
             session_service.create_or_resume.return_value = active_session
@@ -121,13 +121,13 @@ class TestMain:
             resumed=False,
             restore_error="failed to load previous session state: invalid json",
         )
-        monkeypatch.setattr("sibux.main.sys.argv", ["sibux"])
+        monkeypatch.setattr("sibux.cli.main.sys.argv", ["sibux"])
         monkeypatch.setattr("builtins.input", lambda _: "exit")
 
         with (
-            patch("sibux.main.load_config", return_value=config),
-            patch("sibux.main.SessionService") as session_service_cls,
-            patch("sibux.main.create", return_value=object()),
+            patch("sibux.cli.main.load_config", return_value=config),
+            patch("sibux.cli.main.SessionService") as session_service_cls,
+            patch("sibux.cli.main.create", return_value=object()),
         ):
             session_service_cls.return_value.create_or_resume.return_value = active_session
             main()
@@ -141,9 +141,9 @@ class TestMain:
     ) -> None:
         config = _build_config()
         config.default_agent = "explore"
-        monkeypatch.setattr("sibux.main.sys.argv", ["sibux"])
+        monkeypatch.setattr("sibux.cli.main.sys.argv", ["sibux"])
 
-        with patch("sibux.main.load_config", return_value=config):
+        with patch("sibux.cli.main.load_config", return_value=config):
             with pytest.raises(SystemExit) as exc_info:
                 main()
 
@@ -160,13 +160,13 @@ class TestMain:
         first_agent = _FakeAgent()
         second_agent = _FakeAgent()
         inputs = iter(["/new", "continue work", "exit"])
-        monkeypatch.setattr("sibux.main.sys.argv", ["sibux"])
+        monkeypatch.setattr("sibux.cli.main.sys.argv", ["sibux"])
         monkeypatch.setattr("builtins.input", lambda _: next(inputs))
 
         with (
-            patch("sibux.main.load_config", return_value=config),
-            patch("sibux.main.SessionService") as session_service_cls,
-            patch("sibux.main.create", side_effect=[first_agent, second_agent]) as create_mock,
+            patch("sibux.cli.main.load_config", return_value=config),
+            patch("sibux.cli.main.SessionService") as session_service_cls,
+            patch("sibux.cli.main.create", side_effect=[first_agent, second_agent]) as create_mock,
         ):
             session_service = session_service_cls.return_value
             session_service.create_or_resume.return_value = first_session
@@ -184,7 +184,7 @@ class TestMain:
         assert first_agent.calls == []
         assert second_agent.calls == ["continue work"]
         assert "session: sibux_new (new)" in stdout
-        assert "\n[stop_reason: end_turn]" in stdout
+        assert "[stop_reason: end_turn]" in stdout
 
     def test_main_session_command_prints_current_session_details(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
@@ -193,13 +193,13 @@ class TestMain:
         active_session = _active_session(session_id="sibux_456", resumed=True)
         agent = _FakeAgent()
         inputs = iter(["/session", "exit"])
-        monkeypatch.setattr("sibux.main.sys.argv", ["sibux"])
+        monkeypatch.setattr("sibux.cli.main.sys.argv", ["sibux"])
         monkeypatch.setattr("builtins.input", lambda _: next(inputs))
 
         with (
-            patch("sibux.main.load_config", return_value=config),
-            patch("sibux.main.SessionService") as session_service_cls,
-            patch("sibux.main.create", return_value=agent),
+            patch("sibux.cli.main.load_config", return_value=config),
+            patch("sibux.cli.main.SessionService") as session_service_cls,
+            patch("sibux.cli.main.create", return_value=agent),
         ):
             session_service = session_service_cls.return_value
             session_service.create_or_resume.return_value = active_session
@@ -219,13 +219,13 @@ class TestMain:
         active_session = _active_session(session_id="sibux_789", resumed=True)
         agent = _FakeAgent()
         inputs = iter(["/session now", "exit"])
-        monkeypatch.setattr("sibux.main.sys.argv", ["sibux"])
+        monkeypatch.setattr("sibux.cli.main.sys.argv", ["sibux"])
         monkeypatch.setattr("builtins.input", lambda _: next(inputs))
 
         with (
-            patch("sibux.main.load_config", return_value=config),
-            patch("sibux.main.SessionService") as session_service_cls,
-            patch("sibux.main.create", return_value=agent),
+            patch("sibux.cli.main.load_config", return_value=config),
+            patch("sibux.cli.main.SessionService") as session_service_cls,
+            patch("sibux.cli.main.create", return_value=agent),
         ):
             session_service_cls.return_value.create_or_resume.return_value = active_session
             main()
@@ -248,13 +248,13 @@ class TestMain:
         observed_events = []
         GlobalBus().on_all(observed_events.append)
         inputs = iter(["hello", "exit"])
-        monkeypatch.setattr("sibux.main.sys.argv", ["sibux"])
+        monkeypatch.setattr("sibux.cli.main.sys.argv", ["sibux"])
         monkeypatch.setattr("builtins.input", lambda _: next(inputs))
 
         with (
-            patch("sibux.main.load_config", return_value=config),
-            patch("sibux.main.SessionService") as session_service_cls,
-            patch("sibux.main.create", return_value=agent),
+            patch("sibux.cli.main.load_config", return_value=config),
+            patch("sibux.cli.main.SessionService") as session_service_cls,
+            patch("sibux.cli.main.create", return_value=agent),
         ):
             session_service_cls.return_value.create_or_resume.return_value = active_session
             main()
@@ -262,3 +262,45 @@ class TestMain:
         capsys.readouterr()
         assert [event.type for event in observed_events] == [MESSAGE_TEXT_DELTA, INVOCATION_RESULT]
         assert [event.session_id for event in observed_events] == ["sibux_bus", "sibux_bus"]
+
+    def test_main_renders_stream_events_to_terminal(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        config = _build_config()
+        active_session = _active_session(session_id="sibux_terminal", resumed=True)
+        agent = _FakeAgent(
+            events=[
+                {"data": "hello", "delta": {"text": "hello"}},
+                {"reasoning": True, "reasoningText": "checking"},
+                {
+                    "type": "tool_use_stream",
+                    "current_tool_use": {"name": "read", "toolUseId": "toolu_1"},
+                    "delta": {"toolUse": {"input": '{"path":"README.md"}'}},
+                },
+                {
+                    "type": "tool_stream",
+                    "tool_stream_event": {
+                        "tool_use": {"name": "read", "toolUseId": "toolu_1"},
+                        "data": "line 1",
+                    },
+                },
+                {"result": _result(text="hello")},
+            ]
+        )
+        inputs = iter(["hello", "exit"])
+        monkeypatch.setattr("sibux.cli.main.sys.argv", ["sibux"])
+        monkeypatch.setattr("builtins.input", lambda _: next(inputs))
+
+        with (
+            patch("sibux.cli.main.load_config", return_value=config),
+            patch("sibux.cli.main.SessionService") as session_service_cls,
+            patch("sibux.cli.main.create", return_value=agent),
+        ):
+            session_service_cls.return_value.create_or_resume.return_value = active_session
+            main()
+
+        stdout = capsys.readouterr().out
+        assert "assistant: hello" in stdout
+        assert "think: checking" in stdout
+        assert 'tool: read input: {"path":"README.md"}' in stdout
+        assert "tool output: line 1" in stdout

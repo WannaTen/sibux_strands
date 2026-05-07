@@ -11,16 +11,16 @@ import sys
 from typing import TYPE_CHECKING
 
 import strands
+from sibux.agent.agent_factory import create
+from sibux.cli.terminal import TerminalRenderer
+from sibux.config.config import load_config
+from sibux.event import Bus, GlobalBus
+from sibux.event.stream import StreamEventMapper
+from sibux.session import ActiveSession, SessionService
 from strands.agent.agent_result import AgentResult
 
-from .agent.agent_factory import create
-from .config.config import load_config
-from .event import Bus, GlobalBus
-from .event.stream import StreamEventMapper
-from .session import ActiveSession, SessionService
-
 if TYPE_CHECKING:
-    from .config.config import AgentConfig, Config
+    from sibux.config.config import AgentConfig, Config
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +61,8 @@ def main() -> None:
     print(f"model: {resolved_model}")
     _print_session_banner(active_session)
 
-    bus = _create_session_bus(active_session, global_bus)
+    terminal = TerminalRenderer()
+    bus = _create_session_bus(active_session, global_bus, terminal)
     agent = _create_primary_agent(config, agent_config, active_session)
 
     print(f"Sibux [{agent_name}]  (type 'exit' to quit)\n")
@@ -80,7 +81,7 @@ def main() -> None:
         if user_input == "/new":
             active_session = session_service.new_session(agent_name=agent_name)
             _print_session_banner(active_session)
-            bus = _create_session_bus(active_session, global_bus)
+            bus = _create_session_bus(active_session, global_bus, terminal)
             agent = _create_primary_agent(config, agent_config, active_session)
             continue
         if user_input == "/session":
@@ -89,12 +90,15 @@ def main() -> None:
 
         try:
             result = asyncio.run(_stream_agent_prompt(agent, bus, user_input))
-            print(f"\n[stop_reason: {result.stop_reason}]")
+            terminal.finish_turn()
+            print(f"[stop_reason: {result.stop_reason}]")
         except KeyboardInterrupt:
-            print("\n[interrupted]")
+            terminal.finish_turn()
+            print("[interrupted]")
         except Exception as exc:
             import traceback
 
+            terminal.finish_turn()
             traceback.print_exc()
             print(f"Error: {exc}", file=sys.stderr)
 
@@ -122,9 +126,16 @@ def _resolve_configured_model_id(config: Config, agent_config: AgentConfig) -> s
     return model_config.model
 
 
-def _create_session_bus(active_session: ActiveSession, global_bus: GlobalBus) -> Bus:
+def _create_session_bus(
+    active_session: ActiveSession,
+    global_bus: GlobalBus,
+    terminal: TerminalRenderer | None = None,
+) -> Bus:
     """Create the per-session bus used by the current CLI session."""
-    return Bus(active_session.session_id, global_bus=global_bus)
+    bus = Bus(active_session.session_id, global_bus=global_bus)
+    if terminal is not None:
+        bus.subscribe_all(terminal.handle)
+    return bus
 
 
 async def _stream_agent_prompt(agent: strands.Agent, bus: Bus, prompt: str) -> AgentResult:
