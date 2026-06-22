@@ -414,16 +414,20 @@ class GeminiModel(Model):
                         return {"messageStop": {"stopReason": "tool_use"}}
                     case "MAX_TOKENS":
                         return {"messageStop": {"stopReason": "max_tokens"}}
+                    case "SAFETY":
+                        return {"messageStop": {"stopReason": "guardrail_intervened"}}
                     case _:
                         return {"messageStop": {"stopReason": "end_turn"}}
 
             case "metadata":
+                input_tokens = event["data"].prompt_token_count or 0
+                total_tokens = event["data"].total_token_count or 0
                 return {
                     "metadata": {
                         "usage": {
-                            "inputTokens": event["data"].prompt_token_count,
-                            "outputTokens": event["data"].total_token_count - event["data"].prompt_token_count,
-                            "totalTokens": event["data"].total_token_count,
+                            "inputTokens": input_tokens,
+                            "outputTokens": max(0, total_tokens - input_tokens),
+                            "totalTokens": total_tokens,
                         },
                         "metrics": {
                             "latencyMs": 0,  # TODO

@@ -566,3 +566,43 @@ def test_reset_usage_metrics(usage, event_loop_metrics, mock_get_meter_provider)
 
     # Verify accumulated_usage is NOT cleared
     assert event_loop_metrics.accumulated_usage["inputTokens"] == 11
+
+
+def test_metrics_client_concurrent_init_returns_fully_initialized_singleton(mock_get_meter_provider):
+    """Concurrent first-time initialization never exposes a half-built singleton (#2349).
+
+    The init guard keys on a dedicated _initialized flag set only after create_instruments()
+    completes, so a second thread cannot observe an instance whose meter exists but whose
+    instruments are missing.
+    """
+    import threading
+
+    strands.telemetry.metrics.MetricsClient._instance = None
+
+    instances = []
+    barrier = threading.Barrier(8)
+
+    def build():
+        barrier.wait()  # maximize contention on first initialization
+        instances.append(MetricsClient())
+
+    threads = [threading.Thread(target=build) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    # All callers get the same singleton, fully initialized with every instrument.
+    assert len({id(instance) for instance in instances}) == 1
+    required_instruments = [
+        "meter",
+        "event_loop_cycle_count",
+        "event_loop_start_cycle",
+        "event_loop_end_cycle",
+        "event_loop_cycle_duration",
+        "tool_call_count",
+        "tool_duration",
+    ]
+    for instance in instances:
+        for attribute in required_instruments:
+            assert hasattr(instance, attribute), f"missing {attribute} on concurrently-built instance"

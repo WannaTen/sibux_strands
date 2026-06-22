@@ -2,6 +2,7 @@ import pytest
 
 import strands
 from strands.tools.tools import (
+    _MAX_SCHEMA_DEPTH,
     InvalidToolUseNameException,
     PythonAgentTool,
     normalize_schema,
@@ -96,6 +97,25 @@ def test_normalize_schema_basic():
     expected = {"type": "object", "properties": {}, "required": []}
 
     assert normalized == expected
+
+
+def _nested_object_schema(depth):
+    """Build an object schema nested `depth` levels deep."""
+    schema = {"type": "object", "properties": {"leaf": {"type": "string"}}}
+    for _ in range(depth):
+        schema = {"type": "object", "properties": {"child": schema}}
+    return schema
+
+
+def test_normalize_schema_accepts_depth_at_limit():
+    # Nesting within the bound normalizes without error.
+    normalize_schema(_nested_object_schema(_MAX_SCHEMA_DEPTH - 1))
+
+
+def test_normalize_schema_rejects_excessive_depth():
+    # A maliciously deep schema raises ValueError instead of exhausting the stack (#2853).
+    with pytest.raises(ValueError, match="nesting exceeds"):
+        normalize_schema(_nested_object_schema(_MAX_SCHEMA_DEPTH + 5))
 
 
 def test_normalize_schema_with_properties():

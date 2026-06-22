@@ -84,6 +84,17 @@ def test_remove_blank_messages_content_text(messages, exp_result):
         ),
         pytest.param(
             [
+                {"role": "assistant", "content": [{"text": None}, {"toolUse": {"name": "a_name"}}]},
+                {"role": "assistant", "content": [{"text": None}]},
+            ],
+            [
+                {"role": "assistant", "content": [{"toolUse": {"name": "a_name"}}]},
+                {"role": "assistant", "content": [{"text": "[blank text]"}]},
+            ],
+            id="none text",
+        ),
+        pytest.param(
+            [
                 {"role": "assistant", "content": [{"toolUse": {"name": "invalid tool"}}]},
             ],
             [
@@ -498,6 +509,27 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, event_type, s
                 "reasoningText": "",
                 "redactedContent": b"",
                 "citationsContent": [],
+            },
+        ),
+        # Reasoning with empty text but non-empty signature (#2150): block still emitted
+        (
+            {
+                "content": [],
+                "current_tool_use": {},
+                "text": "",
+                "reasoningText": "",
+                "signature": "123",
+                "citationsContent": [],
+                "redactedContent": b"",
+            },
+            {
+                "content": [{"reasoningContent": {"reasoningText": {"text": "", "signature": "123"}}}],
+                "current_tool_use": {},
+                "text": "",
+                "reasoningText": "",
+                "signature": "123",
+                "citationsContent": [],
+                "redactedContent": b"",
             },
         ),
         # Empty

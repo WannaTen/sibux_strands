@@ -979,6 +979,35 @@ async def test_stream_empty(openai_client, model_id, model, agenerator, alist):
 
 
 @pytest.mark.asyncio
+async def test_stream_vllm_reasoning_delta(openai_client, model_id, model, agenerator, alist):
+    """vLLM emits reasoning text on `reasoning` (not `reasoning_content`); it should still stream (#2354)."""
+    # No reasoning_content attribute at all -> getattr fallback reads `reasoning`.
+    mock_delta_1 = unittest.mock.Mock(spec=["content", "tool_calls", "reasoning"])
+    mock_delta_1.content = None
+    mock_delta_1.tool_calls = None
+    mock_delta_1.reasoning = "thinking via vllm"
+
+    mock_delta_2 = unittest.mock.Mock(spec=["content", "tool_calls", "reasoning"])
+    mock_delta_2.content = "answer"
+    mock_delta_2.tool_calls = None
+    mock_delta_2.reasoning = None
+
+    mock_event_1 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_1)])
+    mock_event_2 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_2)])
+    mock_event_3 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="stop", delta=mock_delta_2)])
+    mock_event_4 = unittest.mock.Mock(usage=None)
+
+    openai_client.chat.completions.create = unittest.mock.AsyncMock(
+        return_value=agenerator([mock_event_1, mock_event_2, mock_event_3, mock_event_4]),
+    )
+
+    messages = [{"role": "user", "content": [{"text": "hi"}]}]
+    tru_events = await alist(model.stream(messages))
+
+    assert {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "thinking via vllm"}}}} in tru_events
+
+
+@pytest.mark.asyncio
 async def test_stream_with_empty_choices(openai_client, model, agenerator, alist):
     mock_delta = unittest.mock.Mock(content="content", tool_calls=None, reasoning_content=None)
     mock_usage = unittest.mock.Mock(prompt_tokens=10, completion_tokens=20, total_tokens=30)

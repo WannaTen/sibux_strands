@@ -91,3 +91,37 @@ async def test_concurrent_executor_reraises_exceptions(
         await alist(stream)
 
     assert tool_results == []
+
+
+@pytest.mark.asyncio
+async def test_concurrent_executor_preserves_request_order(
+    executor, agent, tool_results, cycle_trace, cycle_span, invocation_state, alist
+):
+    """tool_results follow request order even when tools finish out of order (#2340)."""
+    import asyncio
+
+    import strands
+
+    @strands.tool(name="fast_tool")
+    async def fast_tool():
+        return "fast"
+
+    @strands.tool(name="slow_then_done")
+    async def slow_then_done():
+        await asyncio.sleep(0.05)
+        return "slow"
+
+    agent.tool_registry.register_tool(fast_tool)
+    agent.tool_registry.register_tool(slow_then_done)
+
+    # slow_then_done is requested first but completes last.
+    tool_uses = [
+        {"name": "slow_then_done", "toolUseId": "1", "input": {}},
+        {"name": "fast_tool", "toolUseId": "2", "input": {}},
+    ]
+
+    stream = executor._execute(agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state)
+    await alist(stream)
+
+    # Results are ordered by request position, not completion time.
+    assert [result["toolUseId"] for result in tool_results] == ["1", "2"]

@@ -1098,3 +1098,24 @@ def test_format_request_filters_location_source_document(model, caplog):
     assert len(formatted_content) == 1
     assert "text" in formatted_content[0]
     assert "Location sources are not supported by Gemini" in caplog.text
+
+
+def test_format_chunk_message_stop_safety(model):
+    """A SAFETY finish reason maps to guardrail_intervened (#2353)."""
+    tru_chunk = model._format_chunk({"chunk_type": "message_stop", "data": "SAFETY"})
+    assert tru_chunk == {"messageStop": {"stopReason": "guardrail_intervened"}}
+
+
+def test_format_chunk_metadata_none_token_counts(model):
+    """None token counts (e.g. safety-blocked responses) are coerced to 0 without negatives (#2353)."""
+    usage_metadata = genai.types.GenerateContentResponseUsageMetadata(
+        prompt_token_count=None,
+        total_token_count=None,
+    )
+    tru_chunk = model._format_chunk({"chunk_type": "metadata", "data": usage_metadata})
+    assert tru_chunk == {
+        "metadata": {
+            "usage": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
+            "metrics": {"latencyMs": 0},
+        },
+    }

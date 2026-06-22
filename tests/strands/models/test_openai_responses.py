@@ -440,6 +440,31 @@ def test_format_request(model, messages, tool_specs, system_prompt):
                 },
             },
         ),
+        # Metadata - cached input tokens reported (#2663)
+        (
+            {
+                "chunk_type": "metadata",
+                "data": unittest.mock.Mock(
+                    input_tokens=100,
+                    output_tokens=50,
+                    total_tokens=150,
+                    input_tokens_details=unittest.mock.Mock(cached_tokens=40),
+                ),
+            },
+            {
+                "metadata": {
+                    "usage": {
+                        "inputTokens": 100,
+                        "outputTokens": 50,
+                        "totalTokens": 150,
+                        "cacheReadInputTokens": 40,
+                    },
+                    "metrics": {
+                        "latencyMs": 0,
+                    },
+                },
+            },
+        ),
     ],
 )
 def test_format_chunk(event, exp_chunk, model):
